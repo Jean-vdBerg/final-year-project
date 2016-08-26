@@ -24,7 +24,6 @@ import java.net.URISyntaxException;
 import java.util.Vector;
 
 import android.app.FragmentTransaction;
-import android.content.ContentResolver;
 import android.content.BroadcastReceiver;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -73,7 +72,9 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-public class MainActivity extends Activity {
+import javax.mail.Message;
+
+ public class MainActivity extends Activity {
 
 	private static final String TAG = "MainActivity";
 
@@ -82,6 +83,7 @@ public class MainActivity extends Activity {
     ActionBar.Tab tabSTT, tabTTS;
     FragmentTabSTT fragmentTabSTT = new FragmentTabSTT();
     FragmentTabTTS fragmentTabTTS = new FragmentTabTTS();
+    static MailHandler mailSender = new MailHandler("jeanvdberg1994@gmail.com", "<password>");
 
     public static class FragmentTabSTT extends Fragment implements ISpeechDelegate {
 
@@ -298,7 +300,7 @@ public class MainActivity extends Activity {
 		        spinner.setAdapter(spinnerArrayAdapter);
                 spinner.setSelection(iIndexDefault);
             }
-        }  
+        }
 
         public void displayResult(final String result, final boolean complete) {
             final Runnable runnableUi = new Runnable(){
@@ -311,17 +313,18 @@ public class MainActivity extends Activity {
                         String textArray[] = result.split(" ");
                         if(textArray[0].equalsIgnoreCase("text"))
                         {
-                            boolean validContact = false;
                             String contact_name = textArray[1];
 
                             Log.d(TAG, "Attempting to obtain number of contact");
 
-                            //mContext
-                            getContactNumber(getActivity().getApplicationContext(), contact_name);
+                            String phone_num = getContactNumber(getActivity().getApplicationContext(), contact_name);
 
-                            //todo process contact to obtain the cellphone number using a contact lookup
+                            Log.d(TAG, "Obtained number: " + phone_num);
 
-                            if(validContact) {
+                            //todo check if getContactNumber works
+                            //if it doesn't work, try move functions to this thread
+
+                            if(phone_num != "") {
                                 String msg = "";
                                 String number = "";
                                 int length = textArray.length;
@@ -338,12 +341,20 @@ public class MainActivity extends Activity {
                         else
                         if(textArray[0].equalsIgnoreCase("mail"))
                         {
-                            boolean validContact = false;
+                            //todo get subject somehow
+
                             String contact = textArray[1];
 
-                            //todo search for contact to obtain the email address using a contact lookup
+                            Log.d(TAG, "Attempting to obtain email address of contact");
 
-                            if(validContact) {
+                            String email = getContactEmail(getActivity().getApplicationContext(), contact);
+
+                            Log.d(TAG, "Obtained email address: " + email);
+
+                            //todo check if getContactEmail works
+                            //if it doesn't work, try move functions to this thread
+
+                            if(email != "") {
                                 String msg = "";
                                 int length = textArray.length;
 
@@ -351,10 +362,14 @@ public class MainActivity extends Activity {
                                     msg += textArray[i] + " ";
                                 }
                                 msg += textArray[length - 1];
+
+                                //todo send email
                             }
                         }
                         else {
-                            //inform user that command was not understood
+                            //todo inform user that command was not understood
+
+                            //could also check if a number was spoken manually
                         }
                     }
 
@@ -737,7 +752,7 @@ public class MainActivity extends Activity {
 					.permitAll().build();
 			StrictMode.setThreadPolicy(policy);
 		}
-				
+
 		//setContentView(R.layout.activity_main);
         setContentView(R.layout.activity_tab_text);
 
@@ -784,7 +799,7 @@ public class MainActivity extends Activity {
 
             //todo possibly improve contact name lookup
 
-            String contact_name = getContactName(getApplicationContext(), contact_number);
+            String contact_name = getContactName(getApplicationContext(), contact_number, true);
 
             Log.d(TAG, "Phone number identified as: " + contact_name);
 
@@ -799,7 +814,11 @@ public class MainActivity extends Activity {
 
             String number = getContactNumber(getApplicationContext(), contact_name);
 
-            output += " (" + number;
+            String email = getContactEmail(getApplicationContext(), contact_name);
+
+            String name_test = getContactName(getApplicationContext(), email, false);
+
+            output += " (" + number + ", " + email + ", " + name_test;
 
             output += ") with the following message: " + message;
 
@@ -817,23 +836,32 @@ public class MainActivity extends Activity {
         }
     };
 
-    public static String getContactName(Context context, String phone_number)
+    public static String getContactName(Context context, String search_term, boolean isNumber)
     {
-        ContentResolver cr = context.getContentResolver();
-        Uri uri = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(phone_number));
-        Cursor cursor = cr.query(uri, new String[]{ContactsContract.PhoneLookup.DISPLAY_NAME}, null, null, null);
-        String contactName = "";
+        Uri uri = ContactsContract.Data.CONTENT_URI;
+        String[] projection = {ContactsContract.Data.DISPLAY_NAME};
+        String name = "";
+        String selection = "";
+        if(isNumber)
+            selection = ContactsContract.CommonDataKinds.Phone.NUMBER + " LIKE ?";
+        else
+            selection = ContactsContract.CommonDataKinds.Email.ADDRESS + " LIKE ?";
+        String[] selectionArgs = {"%" + search_term + "%"};
 
-        if(cursor != null && cursor.moveToFirst())
+        Cursor cursor = context.getContentResolver().query(uri, projection, selection, selectionArgs, null);
+
+        if(cursor != null && cursor.getCount() > 0 && cursor.moveToFirst())
         {
-            contactName = cursor.getString(cursor.getColumnIndex(ContactsContract.PhoneLookup.DISPLAY_NAME));
+            name = cursor.getString(cursor.getColumnIndex(ContactsContract.Data.DISPLAY_NAME));
         }
 
         if(cursor != null && !cursor.isClosed()) {
             cursor.close();
         }
 
-        return contactName;
+        Log.d(TAG, "Obtained name: " + name);
+
+        return name;
     }
 
     public static String getContactNumber(Context context, String name)
@@ -841,7 +869,6 @@ public class MainActivity extends Activity {
         Uri uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI;
         String[] projection = {ContactsContract.CommonDataKinds.Phone.NUMBER};
         String contactNumber = "";
-        //String selection = ContactsContract.Data.DISPLAY_NAME + " = '" + name + "'";
         String selection = ContactsContract.Data.DISPLAY_NAME + " LIKE ?";
         String[] selectionArgs = {"%" + name + "%"};
 
@@ -859,6 +886,30 @@ public class MainActivity extends Activity {
         Log.d(TAG, "Obtained number: " + contactNumber);
 
         return contactNumber;
+    }
+
+    public static String getContactEmail(Context context, String name)
+    {
+        Uri uri = ContactsContract.CommonDataKinds.Email.CONTENT_URI;
+        String[] projection = {ContactsContract.CommonDataKinds.Email.ADDRESS};
+        String email = "";
+        String selection = ContactsContract.Data.DISPLAY_NAME + " LIKE ?";
+        String[] selectionArgs = {"%" + name + "%"};
+
+        Cursor cursor = context.getContentResolver().query(uri, projection, selection, selectionArgs, null);
+
+        if(cursor != null && cursor.getCount() > 0 && cursor.moveToFirst())
+        {
+            email = cursor.getString(cursor.getColumnIndex(ContactsContract.CommonDataKinds.Email.ADDRESS));
+        }
+
+        if(cursor != null && !cursor.isClosed()) {
+            cursor.close();
+        }
+
+        Log.d(TAG, "Obtained email address: " + email);
+
+        return email;
     }
 
     static class MyTokenProvider implements TokenProvider {
@@ -899,13 +950,14 @@ public class MainActivity extends Activity {
 
 	/**
 	 * Play TTS Audio data
-	 * 
+	 *
 	 * @param view
 	 */
 	public void playTTS(View view) throws JSONException {
 
-        TextToSpeech.sharedInstance().setVoice(fragmentTabTTS.getSelectedVoice());
-        Log.d(TAG, fragmentTabTTS.getSelectedVoice());
+       // TextToSpeech.sharedInstance().setVoice(fragmentTabTTS.getSelectedVoice());
+        TextToSpeech.sharedInstance().setVoice("en-US_MichaelVoice");
+        //Log.d(TAG, fragmentTabTTS.getSelectedVoice());
 
 		//Get text from text box
 		textTTS = (TextView)fragmentTabTTS.mView.findViewById(R.id.prompt);
@@ -916,6 +968,51 @@ public class MainActivity extends Activity {
 				InputMethodManager.HIDE_NOT_ALWAYS);
 
 		//Call the sdk function
-		TextToSpeech.sharedInstance().synthesize(ttsText);
+		//TextToSpeech.sharedInstance().synthesize(ttsText);
+        sendEmail("Hi, this is a test email, good luck.", "jeanvdberg1994@gmail.com");
 	}
+
+    public void sendEmail(final String message, final String recipient) {
+        new Thread(){
+            public void run(){
+                try {
+                    //mailSender.sendMail("Test2", message, "jeanvdberg1994@gmail.com", recipient);
+                    //Log.d(TAG, "Mail sent");
+                }
+                catch(Exception e)
+                {
+                    e.printStackTrace();
+                }
+            }
+        }.start();
+    }
+
+     //todo call getMail at beginning of program to obtain unread mails currently in inbox and ask user if they must be read
+     //todo use the code below as start point
+
+    public void openInbox()
+    {
+        new Thread(){
+            public void run(){
+                try {
+                    Message[] test = mailSender.getMail();
+                    int len = test.length;
+                    Log.d(TAG, "Obtained emails in inbox");
+                    Log.d(TAG, "Inbox contains " + len + " emails");
+                    if(len > 0)
+                        Log.d(TAG, "Last emails subject: " + test[len - 1].getSubject());
+
+//                    for (int i = len - 1; i > len - 100; i--) {
+//                        Log.d(TAG, "Subject: " + test[i].getSubject());
+//                    }
+                    //mailSender.closeInbox();
+                }
+                catch(Exception e)
+                {
+                    e.printStackTrace();
+                }
+
+            }
+        }.start();
+    }
 }
