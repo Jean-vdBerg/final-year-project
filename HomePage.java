@@ -21,20 +21,12 @@ import android.widget.TextView;
 import android.content.Context;
 import android.util.Log;
 
-import org.apache.commons.io.IOUtils;
-import org.apache.http.HttpResponse;
-import org.apache.http.client.HttpClient;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.DefaultHttpClient;
-
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.jsoup.Jsoup;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.StringWriter;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.LinkedList;
@@ -50,8 +42,6 @@ import com.project.jean.speech_to_text.dto.SpeechConfiguration;
 import com.project.jean.speech_to_text.ISpeechDelegate;
 import com.project.jean.speech_to_text.SpeechToText;
 import com.project.jean.text_to_speech.TextToSpeech;
-import com.project.jean.speech_common.TokenProvider;
-
 
 public class HomePage extends Activity implements ISpeechDelegate{
 
@@ -285,27 +275,13 @@ public class HomePage extends Activity implements ISpeechDelegate{
 
         String username = getString(R.string.STTUsername);
         String password = getString(R.string.STTPassword);
+        String serviceURL = getString(R.string.STTServiceURL);
 
-        String tokenFactoryURL = getString(R.string.defaultTokenFactory);
-        String serviceURL = "wss://stream.watsonplatform.net/speech-to-text/api";
+        SpeechConfiguration config = new SpeechConfiguration(SpeechConfiguration.AUDIO_FORMAT_OGGOPUS);
+        //SpeechConfiguration config = new SpeechConfiguration(SpeechConfiguration.AUDIO_FORMAT_DEFAULT);
 
-        SpeechConfiguration sConfig = new SpeechConfiguration(SpeechConfiguration.AUDIO_FORMAT_OGGOPUS);
-        //SpeechConfiguration sConfig = new SpeechConfiguration(SpeechConfiguration.AUDIO_FORMAT_DEFAULT);
-
-        SpeechToText.sharedInstance().initWithContext(this.getHost(serviceURL), getApplicationContext(), sConfig);
-
-        // token factory is the preferred authentication method (service credentials are not distributed in the client app)
-        if (!tokenFactoryURL.equals(getString(R.string.defaultTokenFactory))) {
-            SpeechToText.sharedInstance().setTokenProvider(new MyTokenProvider(tokenFactoryURL));
-        }
-        // Basic Authentication
-        else if (!username.equals(getString(R.string.defaultUsername))) {
-            SpeechToText.sharedInstance().setCredentials(username, password);
-        } else {
-            // no authentication method available
-            return false;
-        }
-
+        SpeechToText.sharedInstance().initWithContext(this.getHost(serviceURL), getApplicationContext(), config);
+        SpeechToText.sharedInstance().setCredentials(username, password); // Basic Authentication
         SpeechToText.sharedInstance().setModel(getString(R.string.modelDefault));
         SpeechToText.sharedInstance().setDelegate(this);
 
@@ -372,7 +348,7 @@ public class HomePage extends Activity implements ISpeechDelegate{
     }
 
     public void onAmplitude(double amplitude, double volume) {
-        Log.d(TAG, "onAmplitude function called");
+        //Log.d(TAG, "onAmplitude function called");
     }
 
     public URI getHost(String url){
@@ -445,8 +421,7 @@ public class HomePage extends Activity implements ISpeechDelegate{
                     } else {
                         //unknown contact name or incorrectly translated
                         aState = ApplicationState.TTS_CONVERSION;
-                        TextToSpeech.sharedInstance().synthesize("Unable to find cellphone number of specified contact.", mContext);
-                        //todo test this
+                        TextToSpeech.sharedInstance().synthesize("Unable to find cellphone number of specified contact.", getApplicationContext());
                     }
                 } else if (textArray[0].equalsIgnoreCase("email")) {
                     String contact = textArray[1];
@@ -461,7 +436,7 @@ public class HomePage extends Activity implements ISpeechDelegate{
                     //EMAIL <NAME> <SUBJECT> MESSAGE <BODY>
                     //assumes 1 word names
 
-                    if (email_address.equals("")) {
+                    if (!email_address.equals("")) {
                         String msg = "";
                         String subject = "";
                         int msg_start = 2;
@@ -493,20 +468,18 @@ public class HomePage extends Activity implements ISpeechDelegate{
                         } catch (Exception e) {
                             Log.e(TAG, "Unknown Exception when sending email.");
                             e.printStackTrace();
-                        }
+                        }//todo add better checks for blank messages and so on
 
                         aState = ApplicationState.IDLE;
                     } else {
                         //unknown contact name or incorrectly translated
                         aState = ApplicationState.TTS_CONVERSION;
-                        TextToSpeech.sharedInstance().synthesize("Unable to find email address of specified contact.", mContext);
-                        //todo test this
+                        TextToSpeech.sharedInstance().synthesize("Unable to find email address of specified contact.", getApplicationContext());
                     }
                 } else {
-                    //inform user that command was not understood, ignore the queue if the queue is not empty
+                    //inform user that command was not understood
                     aState = ApplicationState.TTS_CONVERSION;
-                    TextToSpeech.sharedInstance().synthesize("Command could not be understood.", mContext);
-                    //todo test this
+                    TextToSpeech.sharedInstance().synthesize("Command could not be understood.", getApplicationContext());
                     //could also check if a number was spoken manually
                 }
 
@@ -564,52 +537,12 @@ public class HomePage extends Activity implements ISpeechDelegate{
     private boolean initializeTTS() {
         String username = getString(R.string.TTSUsername);
         String password = getString(R.string.TTSPassword);
-        String tokenFactoryURL = getString(R.string.defaultTokenFactory);
-        String serviceURL = "https://stream.watsonplatform.net/text-to-speech/api";
+        String serviceURL = getString(R.string.TTSServiceURL);
 
         TextToSpeech.sharedInstance().initWithContext(this.getHost(serviceURL));
-
-        // token factory is the preferred authentication method (service credentials are not distributed in the client app)
-        if (!tokenFactoryURL.equals(getString(R.string.defaultTokenFactory))) {
-            TextToSpeech.sharedInstance().setTokenProvider(new MyTokenProvider(tokenFactoryURL));
-        }
-        else if (!username.equals(getString(R.string.defaultUsername))) {
-            TextToSpeech.sharedInstance().setCredentials(username, password); //basic authentication
-        } else {
-            return false; //authentication failure
-        }
+        TextToSpeech.sharedInstance().setCredentials(username, password); //basic authentication
         TextToSpeech.sharedInstance().setVoice(getString(R.string.voiceDefault));
         return true;
-    }
-
-    static class MyTokenProvider implements TokenProvider {
-
-        String m_strTokenFactoryURL = null;
-
-        public MyTokenProvider(String strTokenFactoryURL) {
-            m_strTokenFactoryURL = strTokenFactoryURL;
-        }
-
-        public String getToken() {
-
-            Log.d(TAG, "attempting to get a token from: " + m_strTokenFactoryURL);
-            try {
-                // DISCLAIMER: the application developer should implement an authentication mechanism from the mobile app to the
-                // server side app so the token factory in the server only provides tokens to authenticated clients
-                HttpClient httpClient = new DefaultHttpClient();
-                HttpGet httpGet = new HttpGet(m_strTokenFactoryURL);
-                HttpResponse executed = httpClient.execute(httpGet);
-                InputStream is = executed.getEntity().getContent();
-                StringWriter writer = new StringWriter();
-                IOUtils.copy(is, writer, "UTF-8");
-                String strToken = writer.toString();
-                Log.d(TAG, strToken);
-                return strToken;
-            } catch (IOException e) {
-                e.printStackTrace();
-                return null;
-            }
-        }
     }
 
     public String getMailMessage(Message mail) {
@@ -652,9 +585,7 @@ public class HomePage extends Activity implements ISpeechDelegate{
             {
                 Log.d(TAG, "Unknown MimeType (Not from multipart): " + mail.getContentType());
             }
-            //todo add volume control
-            //todo test SST with multiple sentences
-            //todo check format of emails i send to myself
+            //todo test SST with multiple sentences -> causes problem, final is triggered when end of sentence is reached. Will need to solve later.
 
             int index = from.indexOf('<'); //Jean van den Berg <jeanvdberg1994@gmail.com>
             if(index > 1 && from.charAt(index - 1) == ' ')
@@ -663,7 +594,6 @@ public class HomePage extends Activity implements ISpeechDelegate{
                 from = from.substring(0, index);
 
             full_message = "Mail received from: " + from + ".\nThe subject is: " + subject + ".\nThe contents are as follows. " + body;
-            //todo check what happens with synthesizer when the body does not end with a fullstop and there is an attachment that is announced.
 
             Log.d(TAG, full_message);
         } catch(MessagingException e)
@@ -705,19 +635,19 @@ public class HomePage extends Activity implements ISpeechDelegate{
             }
             else if(bodypart.getContentType().toLowerCase().contains("image/"))
             {
-                text += "Mail has an attached image.\n";
+                text += ". Mail has an attached image.\n";
             }
             else if(bodypart.getContentType().toLowerCase().contains("audio/"))
             {
-                text += "Mail has an attached audio file.\n";
+                text += ". Mail has an attached audio file.\n";
             }
             else if(bodypart.getContentType().toLowerCase().contains("video/"))
             {
-                text += "Mail has an attached video file.\n";
+                text += ". Mail has an attached video file.\n";
             }
             else if(bodypart.getContentType().toLowerCase().contains("pdf"))
             {
-                text += "Mail has an attached PDF.\n";
+                text += ". Mail has an attached PDF.\n";
             }else
             {
                 Log.d(TAG, "Unknown MimeType: " + bodypart.getContentType());
@@ -827,7 +757,6 @@ public class HomePage extends Activity implements ISpeechDelegate{
         }
     };
 
-    //todo make sure this works as test with greg lead to reading his number and not name from his sms
     public static String getContactName(Context context, String search_term, boolean isNumber) {
         Uri uri = ContactsContract.Data.CONTENT_URI;
         String[] projection = {ContactsContract.Data.DISPLAY_NAME};
