@@ -124,7 +124,7 @@ public class MailHandler{
 
             if(!inbox.isOpen())
             {
-                inbox.open(Folder.READ_ONLY);
+                inbox.open(Folder.READ_WRITE);
                 if(!inbox.isOpen())
                     throw new MessagingException("Unable to open folder");
             }
@@ -181,7 +181,7 @@ public class MailHandler{
         store = imap_session.getStore("imaps");
         store.connect(mail_host, email_address, password);
         inbox = store.getFolder("Inbox");
-        inbox.open(Folder.READ_ONLY);
+        inbox.open(Folder.READ_WRITE);
 
         FlagTerm flag_term = new FlagTerm(new Flags(Flags.Flag.SEEN), false);
 

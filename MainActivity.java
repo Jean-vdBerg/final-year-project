@@ -62,7 +62,7 @@ import android.widget.TextView;
 import com.ibm.watson.developer_cloud.android.speech_to_text.v1.dto.SpeechConfiguration;
 import com.ibm.watson.developer_cloud.android.speech_to_text.v1.ISpeechDelegate;
 import com.ibm.watson.developer_cloud.android.speech_to_text.v1.SpeechToText;
-import com.ibm.watson.developer_cloud.android.text_to_speech.v1.TextToSpeech;
+//import com.ibm.watson.developer_cloud.android.text_to_speech.v1.TextToSpeech;
 import com.ibm.watson.developer_cloud.android.speech_common.v1.TokenProvider;
 
 import org.apache.commons.io.IOUtils;
@@ -95,6 +95,14 @@ public class MainActivity extends Activity {
 
     int maximum_unread_emails = 2; //todo allow user to change this value in settings
 
+    private enum ApplicationState {
+        IDLE, READ_UNREAD_EMAILS, SST_CONVERSION, TTS_CONVERSION
+    }
+
+    static ApplicationState aState = ApplicationState.READ_UNREAD_EMAILS; //todo implement application states
+
+    private static boolean read_emails = false;
+
     public static class FragmentTabSTT extends Fragment implements ISpeechDelegate {
 
         // session recognition results
@@ -104,12 +112,8 @@ public class MainActivity extends Activity {
             IDLE, CONNECTING, CONNECTED
         }
 
-        private enum ApplicationState {
-            IDLE, READ_UNREAD_EMAILS, SST_CONVERSION, TTS_CONVERSION
-        }
-
         ConnectionState mState = ConnectionState.IDLE;
-        ApplicationState aState = ApplicationState.READ_UNREAD_EMAILS; //todo implement application states
+
         public View mView = null;
         public Context mContext = null;
         public JSONObject jsonModels = null;
@@ -318,112 +322,109 @@ public class MainActivity extends Activity {
         }
 
         public void displayResult(final String result, final boolean complete) {
+            if(complete) {
+                //process string here to find keywords: Text, Email, Phone numbers (10 digits) and Names of Contacts
+                if(aState.equals(ApplicationState.READ_UNREAD_EMAILS))
+                {
+                    if(result.toLowerCase().contains("yes"))
+                    {
+                        //todo output emails here?
+                        read_emails = true;
+                    }
+                    aState = ApplicationState.IDLE;
+                }
+                else {
+                    String textArray[] = result.split(" ");
+                    if (textArray[0].equalsIgnoreCase("text")) {
+                        String contact_name = textArray[1];
+
+                        Log.d(TAG, "Attempting to obtain number of contact");
+
+                        String phone_num = getContactNumber(getActivity().getApplicationContext(), contact_name);
+
+                        Log.d(TAG, "Obtained number: " + phone_num);
+
+                        if (!phone_num.equals("")) {
+                            String msg = "";
+                            int length = textArray.length;
+
+                            for (int i = 2; i < length - 1; i++) {
+                                msg += textArray[i] + " ";
+                            }
+                            msg += textArray[length - 1];
+
+                            Log.d(TAG, "Obtained message: " + msg);
+
+                            SMSSender smsSender = new SMSSender();
+                            smsSender.sendSMS(phone_num, msg);
+                        } else {
+                            //unknown contact name or incorrectly translated
+                            //TextToSpeech.sharedInstance().synthesize("Unable to find cellphone number of specified contact");
+                            //todo inform user about error, ignore the queue if the queue is not empty
+                        }
+                    } else if (textArray[0].equalsIgnoreCase("email")) {
+                        String contact = textArray[1];
+
+                        Log.d(TAG, "Attempting to obtain email address of contact");
+
+                        String email_address = getContactEmail(getActivity().getApplicationContext(), contact);
+
+                        Log.d(TAG, "Obtained email address: " + email_address);
+
+                        //TEXT <NAME> <CONTENTS>
+                        //EMAIL <NAME> <SUBJECT> MESSAGE <BODY>
+                        //assumes 1 word names
+
+                        if (email_address != "") {
+                            String msg = "";
+                            String subject = "";
+                            int msg_start = 2;
+
+                            int length = textArray.length;
+                            for (int i = 2; i < length; i++) {
+                                if (textArray[i].equalsIgnoreCase("message")) {
+                                    msg_start = i + 1;
+                                    for (int j = 2; j < msg_start - 1; j++) {
+                                        subject += textArray[j] + " ";
+                                    }
+                                    break;
+                                }
+                            }
+
+                            for (int i = msg_start; i < length - 1; i++) {
+                                msg += textArray[i] + " ";
+                            }
+                            msg += textArray[length - 1];
+
+                            Log.d(TAG, "Obtained subject: " + subject);
+                            Log.d(TAG, "Obtained message: " + msg);
+
+                            try {
+                                mailSender.sendMail(email_address, subject, msg);
+                            } catch (MessagingException e) {
+                                Log.e(TAG, "Messaging Exception when sending email.");
+                                e.printStackTrace();
+                            } catch (Exception e) {
+                                Log.e(TAG, "Unknown Exception when sending email.");
+                                e.printStackTrace();
+                            }
+
+                        } else {
+                            //unknown contact name or incorrectly translated
+                            //TextToSpeech.sharedInstance().synthesize("Unable to find email address of specified contact");
+                            //todo inform user about error, ignore the queue if the queue is not empty
+                        }
+                    } else {
+                        //todo inform user that command was not understood, ignore the queue if the queue is not empty
+                        //could also check if a number was spoken manually
+                    }
+                }
+            }
+
             final Runnable runnableUi = new Runnable(){
                 @Override
                 public void run() {
                     TextView textResult = (TextView)mView.findViewById(R.id.textResult);
-                    if(complete) {
-                        //process string here to find keywords: Text, Email, Phone numbers (10 digits) and Names of Contacts
-                        //todo add processing for answering yes or no to the read emails out loud question
-                        String textArray[] = result.split(" ");
-                        if(textArray[0].equalsIgnoreCase("text"))
-                        {
-                            String contact_name = textArray[1];
-
-                            Log.d(TAG, "Attempting to obtain number of contact");
-
-                            String phone_num = getContactNumber(getActivity().getApplicationContext(), contact_name);
-
-                            Log.d(TAG, "Obtained number: " + phone_num);
-
-                            if(!phone_num.equals("")) {
-                                String msg = "";
-                                int length = textArray.length;
-
-                                for (int i = 2; i < length - 1; i++) {
-                                    msg += textArray[i] + " ";
-                                }
-                                msg += textArray[length - 1];
-
-                                Log.d(TAG, "Obtained message: " + msg);
-
-                                SMSSender smsSender = new SMSSender();
-                                smsSender.sendSMS(phone_num, msg);
-                            }
-                            else {
-                                //unknown contact name or incorrectly translated
-                                //TextToSpeech.sharedInstance().synthesize("Unable to find cellphone number of specified contact");
-                                //todo inform user about error, ignore the queue if the queue is not empty
-                            }
-                        }
-                        else
-                        if(textArray[0].equalsIgnoreCase("email"))
-                        {
-                            String contact = textArray[1];
-
-                            Log.d(TAG, "Attempting to obtain email address of contact");
-
-                            String email_address = getContactEmail(getActivity().getApplicationContext(), contact);
-
-                            Log.d(TAG, "Obtained email address: " + email_address);
-
-                            //TEXT <NAME> <CONTENTS>
-                            //EMAIL <NAME> <SUBJECT> MESSAGE <BODY>
-                            //assumes 1 word names
-
-                            if(email_address != "") {
-                                String msg = "";
-                                String subject = "";
-                                int msg_start = 2;
-
-                                int length = textArray.length;
-                                for (int i = 2; i < length; i++) {
-                                    if(textArray[i].equalsIgnoreCase("message"))
-                                    {
-                                        msg_start = i + 1;
-                                        for (int j = 2; j < msg_start - 1; j++) {
-                                            subject += textArray[j] + " ";
-                                        }
-                                        break;
-                                    }
-                                }
-
-                                for (int i = msg_start; i < length - 1; i++) {
-                                    msg += textArray[i] + " ";
-                                }
-                                msg += textArray[length - 1];
-
-                                Log.d(TAG, "Obtained subject: " + subject);
-                                Log.d(TAG, "Obtained message: " + msg);
-
-                                try
-                                {
-                                    mailSender.sendMail(email_address, subject, msg);
-                                }
-                                catch(MessagingException e)
-                                {
-                                    Log.e(TAG, "Messaging Exception when sending email.");
-                                    e.printStackTrace();
-                                }
-                                catch (Exception e)
-                                {
-                                    Log.e(TAG, "Unknown Exception when sending email.");
-                                    e.printStackTrace();
-                                }
-
-                            }
-                            else {
-                                //unknown contact name or incorrectly translated
-                                //TextToSpeech.sharedInstance().synthesize("Unable to find email address of specified contact");
-                                //todo inform user about error, ignore the queue if the queue is not empty
-                            }
-                        }
-                        else {
-                            //todo inform user that command was not understood, ignore the queue if the queue is not empty
-                            //could also check if a number was spoken manually
-                        }
-                    }
-
                     textResult.setText(result);
                 }
             };
@@ -622,12 +623,24 @@ public class MainActivity extends Activity {
 
             mHandler = new Handler();
 
-            Log.d(TAG, "Starting reading of unread emails."); //todo: change READ to READ_WRITE in smsreceiver class else you probably reread the same emails, want to set them to read after reading
-
-            while(!synthesizer_queue.isEmpty())
-            {
-                String message = synthesizer_queue.poll();
-                TextToSpeech.sharedInstance().synthesize(message); //todo: test how well this works
+            if(read_emails == true) {
+                new Thread() { //todo only run this if user said yes to reading emails
+                    public void run() {
+                        try {
+                            while (!synthesizer_queue.isEmpty())
+                            {
+                                if (aState.equals(ApplicationState.IDLE)) {
+                                    aState = ApplicationState.TTS_CONVERSION;
+                                    String message = synthesizer_queue.poll();
+                                    Log.d(TAG, "Reading message: " + message);
+                                    TextToSpeech.sharedInstance().synthesize(message, mContext);
+                                }
+                            }
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                    }
+                }.start();
             }
 
             return mView;
@@ -836,52 +849,103 @@ public class MainActivity extends Activity {
 
         //actionBar.setStackedBackgroundDrawable(new ColorDrawable(Color.parseColor("#B5C0D0")));
 
-        registerReceiver(broadcastReceiver, new IntentFilter("broadcast_sms"));
+        IntentFilter filter_received_sms = new IntentFilter("broadcast_sms");
+        registerReceiver(broadcastReceiverReceivedSms, filter_received_sms);
 
-        try{
-            Message[] emails = mailSender.getUnreadMail();
-            int unread_count = emails.length;
+        IntentFilter filter_end_of_synthesis = new IntentFilter("broadcast_end_of_synthesis");
+        registerReceiver(broadcastReceiverEndOfSynthesis, filter_end_of_synthesis);
 
-            int maximum = (unread_count > maximum_unread_emails) ? maximum_unread_emails : unread_count;
-            int minimum = (emails.length > maximum_unread_emails) ? (unread_count - maximum_unread_emails) : 0;
+        IntentFilter filter_trigger_tts = new IntentFilter("broadcast_trigger_tts");
+        registerReceiver(broadcastReceiverTriggerTTS, filter_trigger_tts);
 
-            String unread_email_msg = "You have " + unread_count + " unread emails. ";
-            unread_email_msg += "Would you like the latest " + maximum + " emails to be read out loud?";
-            //todo: allow user to say yes or no if they want this to occur by starting recording immediately, any input besides yes => don't output
-
-            synthesizer_queue.add(unread_email_msg);
-
+//        try{
+//            Message[] emails = mailSender.getUnreadMail();
+//            int unread_count = emails.length;
+//
+//            int maximum = (unread_count > maximum_unread_emails) ? maximum_unread_emails : unread_count;
+//            int minimum = (emails.length > maximum_unread_emails) ? (unread_count - maximum_unread_emails) : 0;
+//
+//            String unread_email_msg = "You have " + unread_count + " unread emails. ";
+//            unread_email_msg += "Would you like the latest " + maximum + " emails to be read out loud?";
+//            //todo: allow user to say yes or no if they want this to occur by starting recording immediately, any input besides yes => don't output
+//
+//            synthesizer_queue.add(unread_email_msg);
+//
 //            for (int i = unread_count - 1; i >= minimum; i--) {
-//                String message = getMailMessage(emails[i]);
+//                String message = getMailMessage(emails[i]);//todo remove after testing looping synthesis
 //                synthesizer_queue.add(message);
 //            }
+//
+////            Iterator it = synthesizer_queue.iterator();
+////            Log.d(TAG, "Queue contains " + synthesizer_queue.size() + " elements.");
+////            while(it.hasNext())
+////            {
+////                String iteratorValue = (String) it.next();
+////                Log.d(TAG, "Current msg:\n" + iteratorValue);
+////            }
+//        }
+//        catch(MessagingException e)
+//        {
+//            Log.e(TAG, "Messaging Exception when fetching unread mail.");
+//            e.printStackTrace();
+//        }
 
-            Iterator it = synthesizer_queue.iterator();
+        new Thread(){
+            public void run(){
+                try{
+                    Message[] emails = mailSender.getUnreadMail();
+                    int unread_count = emails.length;
 
-            Log.d(TAG, "Queue contains " + synthesizer_queue.size() + " elements.");
+                    int maximum = (unread_count > maximum_unread_emails) ? maximum_unread_emails : unread_count;
+                    int minimum = (emails.length > maximum_unread_emails) ? (unread_count - maximum_unread_emails) : 0;
 
-            while(it.hasNext())
-            {
-                String iteratorValue = (String) it.next();
-                Log.d(TAG, "Current msg:\n" + iteratorValue);
-            }
-        }
-        catch(MessagingException e)
-        {
-            Log.e(TAG, "Messaging Exception when fetching unread mail.");
-            e.printStackTrace();
-        }
+                    String unread_email_msg = "You have " + unread_count + " unread emails. ";
+                    unread_email_msg += "Would you like the latest " + maximum + " emails to be read out loud?";
+                    //todo: allow user to say yes or no if they want this to occur by starting recording immediately, any input besides yes => don't output
 
-        mailSender.setListener(new MyListener() {
-            @Override
-            public void callback(Message[] emails, int length) {
-                for (int i = 0; i < length; i++) {
-                    String message = getMailMessage(emails[i]);
-                    synthesizer_queue.add(message);
+                    synthesizer_queue.add(unread_email_msg);
+
+                    for (int i = unread_count - 1; i >= minimum; i--) {
+                        String message = getMailMessage(emails[i]);//todo remove after testing looping synthesis
+                        synthesizer_queue.add(message);
+                    }
+
+                    mailSender.setListener(new MyListener() {
+                        @Override
+                        public void callback(Message[] emails, int length) {
+                            for (int i = 0; i < length; i++) {
+                                String message = getMailMessage(emails[i]);
+                                synthesizer_queue.add(message);
+                            }
+                        }
+                    });
+                    mailSender.getIncomingMail();
+//            Iterator it = synthesizer_queue.iterator();
+//            Log.d(TAG, "Queue contains " + synthesizer_queue.size() + " elements.");
+//            while(it.hasNext())
+//            {
+//                String iteratorValue = (String) it.next();
+//                Log.d(TAG, "Current msg:\n" + iteratorValue);
+//            }
+                }
+                catch(MessagingException e)
+                {
+                    Log.e(TAG, "Messaging Exception when fetching unread mail.");
+                    e.printStackTrace();
                 }
             }
-        });
-        mailSender.getIncomingMail();
+        }.start();
+
+//        mailSender.setListener(new MyListener() {
+//            @Override
+//            public void callback(Message[] emails, int length) {
+//                for (int i = 0; i < length; i++) {
+//                    String message = getMailMessage(emails[i]);
+//                    synthesizer_queue.add(message);
+//                }
+//            }
+//        });
+//        mailSender.getIncomingMail();
     }
 
     public String getMailMessage(Message mail)
@@ -1003,16 +1067,41 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
-        unregisterReceiver(broadcastReceiver);
+        unregisterReceiver(broadcastReceiverTriggerTTS);
+        unregisterReceiver(broadcastReceiverEndOfSynthesis);
+        unregisterReceiver(broadcastReceiverReceivedSms);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        registerReceiver(broadcastReceiver, new IntentFilter("broadcast_sms"));
+        IntentFilter filter_received_sms = new IntentFilter("broadcast_sms");
+        registerReceiver(broadcastReceiverReceivedSms, filter_received_sms);
+
+        IntentFilter filter_end_of_synthesis = new IntentFilter("broadcast_end_of_synthesis");
+        registerReceiver(broadcastReceiverEndOfSynthesis, filter_end_of_synthesis);
+
+        IntentFilter filter_trigger_tts = new IntentFilter("broadcast_trigger_tts");
+        registerReceiver(broadcastReceiverTriggerTTS, filter_trigger_tts);
     }
 
-    BroadcastReceiver broadcastReceiver =  new BroadcastReceiver() {
+    BroadcastReceiver broadcastReceiverTriggerTTS =  new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            Log.d(TAG, "Received broadcast to trigger TTS.");
+            aState = ApplicationState.TTS_CONVERSION;
+        }
+    };
+
+    BroadcastReceiver broadcastReceiverEndOfSynthesis =  new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            Log.d(TAG, "Received broadcast from TTS.");
+            aState = ApplicationState.IDLE;
+        }
+    };
+
+    BroadcastReceiver broadcastReceiverReceivedSms =  new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
 
