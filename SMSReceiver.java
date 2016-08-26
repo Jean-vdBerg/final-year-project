@@ -43,7 +43,7 @@ public class SMSReceiver extends BroadcastReceiver
                 broadcast_intent.putExtra("contact", contact_number);
                 context.sendBroadcast(broadcast_intent);
 
-                Toast.makeText(context, str, Toast.LENGTH_LONG).show();
+                //Toast.makeText(context, str, Toast.LENGTH_LONG).show();
             }
         }
         else

@@ -97,10 +97,10 @@ public class MainActivity extends Activity {
     int maximum_unread_emails = 2; //todo allow user to change this value in settings
 
     private enum ApplicationState {
-        IDLE, READ_UNREAD_EMAILS, SST_CONVERSION, TTS_CONVERSION
+        IDLE, SST_CONVERSION, TTS_CONVERSION //todo: edit "record" button state appropriately according to current application state
     }
 
-    static ApplicationState aState = ApplicationState.IDLE; //todo implement application states
+    static ApplicationState aState = ApplicationState.IDLE;
 
     private static boolean read_emails = false;
 
@@ -930,12 +930,11 @@ public class MainActivity extends Activity {
 
                     String unread_email_msg = "You have " + unread_count + " unread emails. ";
                     unread_email_msg += "Would you like the latest " + maximum + " emails to be read out loud?";
-                    //todo: allow user to say yes or no if they want this to occur by starting recording immediately, any input besides yes => don't output
 
                     synthesizer_queue.add(unread_email_msg);
 
                     for (int i = unread_count - 1; i >= minimum; i--) {
-                        String message = getMailMessage(emails[i]);//todo remove after testing looping synthesis
+                        String message = getMailMessage(emails[i]);
                         unread_mail_queue.add(message);
                     }
 
@@ -967,17 +966,6 @@ public class MainActivity extends Activity {
                 }
             }
         }.start();
-
-//        mailSender.setListener(new MyListener() {
-//            @Override
-//            public void callback(Message[] emails, int length) {
-//                for (int i = 0; i < length; i++) {
-//                    String message = getMailMessage(emails[i]);
-//                    synthesizer_queue.add(message);
-//                }
-//            }
-//        });
-//        mailSender.getIncomingMail();
     }
 
     public String getMailMessage(Message mail)
@@ -1122,7 +1110,7 @@ public class MainActivity extends Activity {
         public void onReceive(Context context, Intent intent) {
             Log.d(TAG, "Received broadcast to trigger TTS.");
 
-            new Thread() { //todo test this
+            new Thread() {
                 public void run() {
                     try {
                         while (!synthesizer_queue.isEmpty())
@@ -1130,7 +1118,7 @@ public class MainActivity extends Activity {
                             if (aState.equals(ApplicationState.IDLE)) {
                                 aState = ApplicationState.TTS_CONVERSION;
                                 String message = synthesizer_queue.poll();
-                                Log.d(TAG, "Reading message: " + message);
+                                Log.d(TAG, "Reading message:\n" + message);
                                 TextToSpeech.sharedInstance().synthesize(message, getApplicationContext());
                             }
                         }
@@ -1175,11 +1163,6 @@ public class MainActivity extends Activity {
             else
                 output += contact_number;
 
-            //String number = getContactNumber(getApplicationContext(), contact_name);
-            //String email = getContactEmail(getApplicationContext(), contact_name);
-            //String name_test = getContactName(getApplicationContext(), email, false);
-            //output += " (" + number + ", " + email + ", " + name_test;
-
             output += " with the following message. " + message;
 
             Log.d(TAG, output);
@@ -1188,63 +1171,59 @@ public class MainActivity extends Activity {
 
             Intent intent_trigger_tts = new Intent("broadcast_trigger_tts");
             sendBroadcast(intent_trigger_tts);
-
-            //TextToSpeech.sharedInstance().setVoice("en-US_MichaelVoice");
-
-            //TextToSpeech.sharedInstance().synthesize(output);
         }
     };
 
     public static String getContactName(Context context, String search_term, boolean isNumber)
     {
-    Uri uri = ContactsContract.Data.CONTENT_URI;
-    String[] projection = {ContactsContract.Data.DISPLAY_NAME};
-    String name = "";
-    String selection;
-    if(isNumber)
-        selection = ContactsContract.CommonDataKinds.Phone.NUMBER + " LIKE ?";
-    else
-        selection = ContactsContract.CommonDataKinds.Email.ADDRESS + " LIKE ?";
-    String[] selectionArgs = {"%" + search_term + "%"};
+        Uri uri = ContactsContract.Data.CONTENT_URI;
+        String[] projection = {ContactsContract.Data.DISPLAY_NAME};
+        String name = "";
+        String selection;
+        if(isNumber)
+            selection = ContactsContract.CommonDataKinds.Phone.NUMBER + " LIKE ?";
+        else
+            selection = ContactsContract.CommonDataKinds.Email.ADDRESS + " LIKE ?";
+        String[] selectionArgs = {"%" + search_term + "%"};
 
-    Cursor cursor = context.getContentResolver().query(uri, projection, selection, selectionArgs, null);
+        Cursor cursor = context.getContentResolver().query(uri, projection, selection, selectionArgs, null);
 
-    if(cursor != null && cursor.getCount() > 0 && cursor.moveToFirst())
-    {
-        name = cursor.getString(cursor.getColumnIndex(ContactsContract.Data.DISPLAY_NAME));
-    }
+        if(cursor != null && cursor.getCount() > 0 && cursor.moveToFirst())
+        {
+            name = cursor.getString(cursor.getColumnIndex(ContactsContract.Data.DISPLAY_NAME));
+        }
 
-    if(cursor != null && !cursor.isClosed()) {
-        cursor.close();
-    }
+        if(cursor != null && !cursor.isClosed()) {
+            cursor.close();
+        }
 
-    Log.d(TAG, "Obtained name: " + name);
+        Log.d(TAG, "Obtained name: " + name);
 
-    return name;
+        return name;
     }
 
     public static String getContactNumber(Context context, String name)
     {
-    Uri uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI;
-    String[] projection = {ContactsContract.CommonDataKinds.Phone.NUMBER};
-    String contactNumber = "";
-    String selection = ContactsContract.Data.DISPLAY_NAME + " LIKE ?";
-    String[] selectionArgs = {"%" + name + "%"};
+        Uri uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI;
+        String[] projection = {ContactsContract.CommonDataKinds.Phone.NUMBER};
+        String contactNumber = "";
+        String selection = ContactsContract.Data.DISPLAY_NAME + " LIKE ?";
+        String[] selectionArgs = {"%" + name + "%"};
 
-    Cursor cursor = context.getContentResolver().query(uri, projection, selection, selectionArgs, null);
+        Cursor cursor = context.getContentResolver().query(uri, projection, selection, selectionArgs, null);
 
-    if(cursor != null && cursor.getCount() > 0 && cursor.moveToFirst())
-    {
-        contactNumber = cursor.getString(cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER));
-    }
+        if(cursor != null && cursor.getCount() > 0 && cursor.moveToFirst())
+        {
+            contactNumber = cursor.getString(cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER));
+        }
 
-    if(cursor != null && !cursor.isClosed()) {
-        cursor.close();
-    }
+        if(cursor != null && !cursor.isClosed()) {
+            cursor.close();
+        }
 
-    Log.d(TAG, "Obtained number: " + contactNumber);
+        Log.d(TAG, "Obtained number: " + contactNumber);
 
-    return contactNumber;
+        return contactNumber;
     }
 
     public static String getContactEmail(Context context, String name)
@@ -1271,32 +1250,32 @@ public class MainActivity extends Activity {
 
     static class MyTokenProvider implements TokenProvider {
 
-    String m_strTokenFactoryURL = null;
+        String m_strTokenFactoryURL = null;
 
-    public MyTokenProvider(String strTokenFactoryURL) {
-        m_strTokenFactoryURL = strTokenFactoryURL;
-    }
-
-    public String getToken() {
-
-        Log.d(TAG, "attempting to get a token from: " + m_strTokenFactoryURL);
-        try {
-            // DISCLAIMER: the application developer should implement an authentication mechanism from the mobile app to the
-            // server side app so the token factory in the server only provides tokens to authenticated clients
-            HttpClient httpClient = new DefaultHttpClient();
-            HttpGet httpGet = new HttpGet(m_strTokenFactoryURL);
-            HttpResponse executed = httpClient.execute(httpGet);
-            InputStream is = executed.getEntity().getContent();
-            StringWriter writer = new StringWriter();
-            IOUtils.copy(is, writer, "UTF-8");
-            String strToken = writer.toString();
-            Log.d(TAG, strToken);
-            return strToken;
-        } catch (IOException e) {
-            e.printStackTrace();
-            return null;
+        public MyTokenProvider(String strTokenFactoryURL) {
+            m_strTokenFactoryURL = strTokenFactoryURL;
         }
-    }
+
+        public String getToken() {
+
+            Log.d(TAG, "attempting to get a token from: " + m_strTokenFactoryURL);
+            try {
+                // DISCLAIMER: the application developer should implement an authentication mechanism from the mobile app to the
+                // server side app so the token factory in the server only provides tokens to authenticated clients
+                HttpClient httpClient = new DefaultHttpClient();
+                HttpGet httpGet = new HttpGet(m_strTokenFactoryURL);
+                HttpResponse executed = httpClient.execute(httpGet);
+                InputStream is = executed.getEntity().getContent();
+                StringWriter writer = new StringWriter();
+                IOUtils.copy(is, writer, "UTF-8");
+                String strToken = writer.toString();
+                Log.d(TAG, strToken);
+                return strToken;
+            } catch (IOException e) {
+                e.printStackTrace();
+                return null;
+            }
+        }
     }
 
     @Override
