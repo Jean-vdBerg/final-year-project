@@ -330,12 +330,8 @@ public class MainActivity extends Activity {
 
                             Log.d(TAG, "Obtained number: " + phone_num);
 
-                            //todo check if getContactNumber works
-                            //if it doesn't work, try move functions to this thread
-
                             if(!phone_num.equals("")) {
                                 String msg = "";
-                                String number = "";
                                 int length = textArray.length;
 
                                 for (int i = 2; i < length - 1; i++) {
@@ -343,8 +339,10 @@ public class MainActivity extends Activity {
                                 }
                                 msg += textArray[length - 1];
 
+                                Log.d(TAG, "Obtained message: " + msg);
+
                                 SMSSender smsSender = new SMSSender();
-                                smsSender.sendSMS(number, msg);
+                                smsSender.sendSMS(phone_num, msg);
                             }
                             else {
                                 //unknown contact name or incorrectly translated
@@ -352,7 +350,7 @@ public class MainActivity extends Activity {
                             }
                         }
                         else
-                        if(textArray[0].equalsIgnoreCase("mail"))
+                        if(textArray[0].equalsIgnoreCase("email"))
                         {
                             String contact = textArray[1];
 
@@ -362,11 +360,8 @@ public class MainActivity extends Activity {
 
                             Log.d(TAG, "Obtained email address: " + email_address);
 
-                            //todo check if getContactEmail works
-                            //if it doesn't work, try move functions to this thread
-
                             //TEXT <NAME> <CONTENTS>
-                            //MAIL <NAME> <SUBJECT> END SUBJECT <BODY>
+                            //EMAIL <NAME> <SUBJECT> MESSAGE <BODY>
                             //assumes 1 word names
 
                             if(email_address != "") {
@@ -376,11 +371,11 @@ public class MainActivity extends Activity {
 
                                 int length = textArray.length;
                                 for (int i = 2; i < length; i++) {
-                                    if(textArray[i].equalsIgnoreCase("end") && textArray[i].equalsIgnoreCase("subject"))
+                                    if(textArray[i].equalsIgnoreCase("message"))
                                     {
-                                        msg_start = i + 2;
-                                        for (int j = 2; j < msg_start; j++) {
-                                            subject += textArray[i] + " ";
+                                        msg_start = i + 1;
+                                        for (int j = 2; j < msg_start - 1; j++) {
+                                            subject += textArray[j] + " ";
                                         }
                                         break;
                                     }
@@ -390,6 +385,9 @@ public class MainActivity extends Activity {
                                     msg += textArray[i] + " ";
                                 }
                                 msg += textArray[length - 1];
+
+                                Log.d(TAG, "Obtained subject: " + subject);
+                                Log.d(TAG, "Obtained message: " + msg);
 
                                 try
                                 {
@@ -501,7 +499,7 @@ public class MainActivity extends Activity {
 
         public void onMessage(String message) {
 
-            Log.d(TAG, "onMessage, message: " + message);
+            //Log.d(TAG, "onMessage, message: " + message);
             try {
                 JSONObject jObj = new JSONObject(message);
                 // state message
@@ -523,15 +521,17 @@ public class MainActivity extends Activity {
                             str = str.replaceAll("\\s+","");
                         }
                         String strFormatted = Character.toUpperCase(str.charAt(0)) + str.substring(1);
+                        String test = obj.getString("final");
                         if (obj.getString("final").equals("true")) {
 
                             //todo
                             mState = ConnectionState.IDLE;
+                            Log.d(TAG, "Shutting down recognition.");
                             Log.d(TAG, "onClickRecord: CONNECTED -> IDLE");
-                            Spinner spinner = (Spinner)mView.findViewById(R.id.spinnerModels);
-                            spinner.setEnabled(true);
+                            //Spinner spinner = (Spinner)mView.findViewById(R.id.spinnerModels);
+                            //spinner.setEnabled(true);
                             SpeechToText.sharedInstance().stopRecognition(); //uses OnMessage() function to display results
-                            setButtonState(false);
+                            //setButtonState(false);
                             //todo: check how this operates at home
 
                             String stopMarker = (model.startsWith("ja-JP") || model.startsWith("zh-CN")) ? "。" : ". ";
@@ -836,19 +836,19 @@ public class MainActivity extends Activity {
             int unread_count = emails.length;
 
             int maximum = (unread_count > maximum_unread_emails) ? maximum_unread_emails : unread_count;
-            int minimum = (emails.length > maximum_unread_emails) ? (unread_count - maximum_unread_emails - 1) : 0;
+            int minimum = (emails.length > maximum_unread_emails) ? (unread_count - maximum_unread_emails) : 0;
 
-            String unread_email_msg = "You have " + unread_count + " unread emails.";
+            String unread_email_msg = "You have " + unread_count + " unread emails. ";
             unread_email_msg += "The latest " + maximum + " emails shall now be read out loud";
             //todo: allow user to say yes or no if they want this to occur
 
             synthesizer_queue.add(unread_email_msg);
 
-            for (int i = unread_count - 1; i > minimum; i--) {
-                String message = getMailMessage(emails[i]);
-                //todo test queue thoroughly
-                synthesizer_queue.add(message);
-            }
+//            for (int i = unread_count - 1; i >= minimum; i--) {
+//                String message = getMailMessage(emails[i]);
+//                //todo test queue thoroughly
+//                synthesizer_queue.add(message);
+//            }
 
             Iterator it = synthesizer_queue.iterator();
 
@@ -922,10 +922,11 @@ public class MainActivity extends Activity {
             //todo add volume control
 
             int index = from.indexOf('<'); //Jean van den Berg <jeanvdberg1994@gmail.com>
-            if(from.charAt(index - 1) == ' ') {
+            if(index > 1 && from.charAt(index - 1) == ' ')
                 index--;
-            }
-            from = from.substring(0, index);
+            if(index >= 1)
+                from = from.substring(0, index);
+
 
             full_message = "Mail received from: " + from + ".\nThe subject is: " + subject + ".\nThe contents are as follows. " + body;
             //todo check what happens with synthezier when the body does not end with a fullstop and there is an attachment that is announced.
@@ -1100,26 +1101,24 @@ public class MainActivity extends Activity {
 
     public static String getContactEmail(Context context, String name)
     {
-    Uri uri = ContactsContract.CommonDataKinds.Email.CONTENT_URI;
-    String[] projection = {ContactsContract.CommonDataKinds.Email.ADDRESS};
-    String email = "";
-    String selection = ContactsContract.Data.DISPLAY_NAME + " LIKE ?";
-    String[] selectionArgs = {"%" + name + "%"};
+        Uri uri = ContactsContract.CommonDataKinds.Email.CONTENT_URI;
+        String[] projection = {ContactsContract.CommonDataKinds.Email.ADDRESS};
+        String email = "";
+        String selection = ContactsContract.Data.DISPLAY_NAME + " LIKE ?";
+        String[] selectionArgs = {"%" + name + "%"};
 
-    Cursor cursor = context.getContentResolver().query(uri, projection, selection, selectionArgs, null);
+        Cursor cursor = context.getContentResolver().query(uri, projection, selection, selectionArgs, null);
 
-    if(cursor != null && cursor.getCount() > 0 && cursor.moveToFirst())
-    {
-        email = cursor.getString(cursor.getColumnIndex(ContactsContract.CommonDataKinds.Email.ADDRESS));
-    }
+        if(cursor != null && cursor.getCount() > 0 && cursor.moveToFirst())
+        {
+            email = cursor.getString(cursor.getColumnIndex(ContactsContract.CommonDataKinds.Email.ADDRESS));
+        }
 
-    if(cursor != null && !cursor.isClosed()) {
-        cursor.close();
-    }
+        if(cursor != null && !cursor.isClosed()) {
+            cursor.close();
+        }
 
-    Log.d(TAG, "Obtained email address: " + email);
-
-    return email;
+        return email;
     }
 
     static class MyTokenProvider implements TokenProvider {
@@ -1174,7 +1173,14 @@ public class MainActivity extends Activity {
 
         //Call the sdk function
         //TextToSpeech.sharedInstance().synthesize(ttsText);
-        //sendEmail("Test", "Hi, this is a test email, good luck.", "jeanvdberg1994@gmail.com");
+
+//        try {
+//            mailSender.sendMail("jeanvdberg1994@gmail.com", "Test", "Hi, this is a test email, good luck.");
+//        }
+//        catch(Exception e)
+//        {
+//            e.printStackTrace();
+//        }
         //readEmails();
     }
 

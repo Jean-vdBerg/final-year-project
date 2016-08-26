@@ -50,16 +50,21 @@ public class MailHandler{
     public MailHandler(String new_email_address, String new_password) {
         email_address = new_email_address;
         password = new_password;
+        MailAuthenticator authenticator = new MailAuthenticator(email_address, password);
 
         Properties props_smtp = new Properties();
-        props_smtp.put("mail.smtp.auth", "true");
-        props_smtp.put("mail.smtp.starttls.enable", "true");
-        props_smtp.put("mail.smtp.host", smtp_host);
-        props_smtp.put("mail.smtp.port", "587");
+        //props_smtp.setProperty("mail.transport.protocol", "smtps");
+        props_smtp.setProperty("mail.smtp.auth", "true");
+        props_smtp.setProperty("mail.smtp.starttls.enable", "true");
+        props_smtp.setProperty("mail.smtp.host", smtp_host);
+        props_smtp.setProperty("mail.smtp.port", "587");
+        //props_smtp.put("mail.smtp.socketFactory.port", "465");
+       // props_smtp.put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory");
+        //props_smtp.put("mail.smtp.socketFactory.fallback", "false");
 
-       // smtp_session = Session.getDefaultInstance(props_smtp, authenticator);
+        smtp_session = Session.getDefaultInstance(props_smtp, authenticator);
 
-        smtp_session = Session.getInstance(props_smtp);
+        //smtp_session = Session.getInstance(props_smtp);
 
         Properties props_imap = new Properties();
         props_imap.setProperty("mail.store.protocol", "imaps");
