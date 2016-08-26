@@ -29,6 +29,7 @@
             </intent-filter>
         </activity>
         <activity android:name=".DisplayHelp"></activity>
+        <activity android:name=".DisplaySettings"></activity>
 
         <receiver android:name=".SMSReceiver">
             <intent-filter>

@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.BroadcastReceiver;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.AsyncTask;
@@ -55,16 +56,18 @@ import com.project.jean.speech_common.TokenProvider;
 public class HomePage extends Activity implements ISpeechDelegate{
 
     private static final String TAG = "MainActivity";
+    private static final String PREFS = "VoiceAppPrefs";
+    private final int SETTINGS_REQ_CODE = 1;
 
     static Queue<String> synthesizer_queue = new LinkedList<>();
     static Queue<String> unread_mail_queue = new LinkedList<>();
 
     static MailHandler mailSender = new MailHandler("jeanvdberg1994@gmail.com", "<password>");
 
-    int maximum_unread_emails = 2; //todo allow user to change this value in settings
+    int maximum_unread_emails = 2;
 
     private enum ApplicationState {
-        IDLE, SST_CONVERSION, TTS_CONVERSION //todo: edit "record" button state appropriately according to current application state
+        IDLE, SST_CONVERSION, TTS_CONVERSION
     }
 
     ApplicationState aState = ApplicationState.IDLE;
@@ -97,6 +100,9 @@ public class HomePage extends Activity implements ISpeechDelegate{
         mContext = getApplicationContext();
         mHandler = new Handler();
 
+        SharedPreferences settings = getSharedPreferences(PREFS, 0);
+        maximum_unread_emails = settings.getInt("unread_email_amount", 2);
+
         new Thread(){
             public void run(){
                 try{
@@ -111,6 +117,9 @@ public class HomePage extends Activity implements ISpeechDelegate{
 
                     synthesizer_queue.add(unread_email_msg);
 
+                    Intent intent_email_init = new Intent("broadcast_email_init");
+                    sendBroadcast(intent_email_init);
+
                     for (int i = unread_count - 1; i >= minimum; i--) {
                         String message = getMailMessage(emails[i]);
                         unread_mail_queue.add(message);
@@ -122,10 +131,11 @@ public class HomePage extends Activity implements ISpeechDelegate{
                             for (int i = 0; i < length; i++) {
                                 String message = getMailMessage(emails[i]);
                                 synthesizer_queue.add(message);
-
-                                Intent intent_trigger_tts = new Intent("broadcast_trigger_tts");
-                                sendBroadcast(intent_trigger_tts);
+                                Log.d(TAG, "Adding email to queue");
                             }
+                            Log.d(TAG, "Sending intent");
+                            Intent intent_trigger_tts = new Intent("broadcast_trigger_tts");
+                            sendBroadcast(intent_trigger_tts);
                         }
                     });
                     mailSender.getIncomingMail();
@@ -150,11 +160,19 @@ public class HomePage extends Activity implements ISpeechDelegate{
             TextView textbox = (TextView) findViewById(R.id.textDisplay);
             textbox.setText(R.string.authenticationErrorTTS);
         }
+        else
+        {
+            Log.d(TAG, "TTS initialized");
+        }
 
         Log.d(TAG, "Initializing STT");
         if (!initializeSTT()) {
             TextView textbox = (TextView) findViewById(R.id.textDisplay);
             textbox.setText(R.string.authenticationErrorSTT);
+        }
+        else
+        {
+            Log.d(TAG, "STT initialized");
         }
 
         Button buttonRecord = (Button) findViewById(R.id.buttonRecord);
@@ -193,27 +211,11 @@ public class HomePage extends Activity implements ISpeechDelegate{
         IntentFilter filter_end_of_synthesis = new IntentFilter("broadcast_end_of_synthesis");
         registerReceiver(broadcastReceiverEndOfSynthesis, filter_end_of_synthesis);
 
+        IntentFilter filter_email_init = new IntentFilter("broadcast_email_init");
+        registerReceiver(broadcastReceiverEmailInitialized, filter_email_init);
+
         IntentFilter filter_trigger_tts = new IntentFilter("broadcast_trigger_tts");
         registerReceiver(broadcastReceiverTriggerTTS, filter_trigger_tts);
-
-        //Output question to ask for reading of emails
-        if(!read_emails) {
-            new Thread() {
-                public void run() {
-                    try {
-                        if (!synthesizer_queue.isEmpty()) {
-                            if (aState.equals(ApplicationState.IDLE)) {
-                                String message = synthesizer_queue.poll();
-                                Log.d(TAG, "Reading message: " + message);
-                                TextToSpeech.sharedInstance().synthesize(message, mContext);
-                            }
-                        }
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
-                }
-            }.start();
-        }
     }
 
     @Override
@@ -221,6 +223,7 @@ public class HomePage extends Activity implements ISpeechDelegate{
         super.onPause();
         unregisterReceiver(broadcastReceiverTriggerTTS);
         unregisterReceiver(broadcastReceiverEndOfSynthesis);
+        unregisterReceiver(broadcastReceiverEmailInitialized);
         unregisterReceiver(broadcastReceiverReceivedSms);
     }
 
@@ -233,8 +236,16 @@ public class HomePage extends Activity implements ISpeechDelegate{
         IntentFilter filter_end_of_synthesis = new IntentFilter("broadcast_end_of_synthesis");
         registerReceiver(broadcastReceiverEndOfSynthesis, filter_end_of_synthesis);
 
+        IntentFilter filter_emails_init = new IntentFilter("broadcast_email_init");
+        registerReceiver(broadcastReceiverEmailInitialized, filter_emails_init);
+
         IntentFilter filter_trigger_tts = new IntentFilter("broadcast_trigger_tts");
         registerReceiver(broadcastReceiverTriggerTTS, filter_trigger_tts);
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
     }
 
     @Override
@@ -265,8 +276,9 @@ public class HomePage extends Activity implements ISpeechDelegate{
     }
 
     public void settingsButtonPressed(View view) {
-        Intent settingsIntent = new Intent(this, DisplayHelp.class); //todo make new class for displaying settings
-        startActivity(settingsIntent);
+        Intent settingsIntent = new Intent(this, DisplaySettings.class);
+        settingsIntent.putExtra("email_amount", maximum_unread_emails);
+        startActivityForResult(settingsIntent, SETTINGS_REQ_CODE);
     }
 
     private boolean initializeSTT() {
@@ -300,12 +312,6 @@ public class HomePage extends Activity implements ISpeechDelegate{
         return true;
     }
 
-//    public static class STTCommands extends AsyncTask<Void, Void, JSONObject> {
-//        protected JSONObject doInBackground(Void... none) {
-//            return SpeechToText.sharedInstance().getModels();
-//        }
-//    }
-
     public void onOpen() {
         Log.d(TAG, "onOpen");
         setButtonLabel(R.id.buttonRecord, "Stop recording");
@@ -326,17 +332,12 @@ public class HomePage extends Activity implements ISpeechDelegate{
     }
 
     public void onMessage(String message) {
-
-        //Log.d(TAG, "onMessage, message: " + message);
         try {
             JSONObject jObj = new JSONObject(message);
-            // state message
             if(jObj.has("state")) {
                 Log.d(TAG, "Status message: " + jObj.getString("state"));
             }
-            // results message
             else if (jObj.has("results")) {
-                //if has result
                 Log.d(TAG, "Results message: ");
                 JSONArray jArr = jObj.getJSONArray("results");
                 for (int i=0; i < jArr.length(); i++) {
@@ -344,27 +345,14 @@ public class HomePage extends Activity implements ISpeechDelegate{
                     JSONArray jArr1 = obj.getJSONArray("alternatives");
                     String str = jArr1.getJSONObject(0).getString("transcript");
                     // remove whitespaces if the language requires it
-                    //String model = this.getModelSelected();
-                    String model = getString(R.string.modelDefault);
-                    if (model.startsWith("ja-JP") || model.startsWith("zh-CN")) {
-                        str = str.replaceAll("\\s+","");
-                    }
                     String strFormatted = Character.toUpperCase(str.charAt(0)) + str.substring(1);
-                    String test = obj.getString("final");
                     if (obj.getString("final").equals("true")) {
-
-                        //todo
                         mState = ConnectionState.IDLE;
                         Log.d(TAG, "Shutting down recognition.");
                         Log.d(TAG, "onClickRecord: CONNECTED -> IDLE");
-                        //Spinner spinner = (Spinner)mView.findViewById(R.id.spinnerModels);
-                        //spinner.setEnabled(true); //cant edit ui in non-ui related thread
                         SpeechToText.sharedInstance().stopRecognition(); //uses OnMessage() function to display results
                         //setButtonState(false);
-
-                        String stopMarker = (model.startsWith("ja-JP") || model.startsWith("zh-CN")) ? "。" : ". ";
-                        recognition_results += strFormatted.substring(0,strFormatted.length()-1) + stopMarker;
-
+                        recognition_results += strFormatted.substring(0,strFormatted.length()-1) + ". ";
 
                         displayResult(recognition_results, true);
                     } else {
@@ -372,8 +360,9 @@ public class HomePage extends Activity implements ISpeechDelegate{
                     }
                     break;
                 }
-            } else {
-                displayResult("unexpected data coming from stt server: \n" + message, false);
+            }
+            else {
+                displayResult("Unexpected data coming from STT server: \n" + message, false);
             }
 
         } catch (JSONException e) {
@@ -403,7 +392,6 @@ public class HomePage extends Activity implements ISpeechDelegate{
                 aState = ApplicationState.IDLE;
                 if(result.toLowerCase().contains("yes"))
                 {
-                    //todo test this at home
                     new Thread() {
                         public void run() {
                             try {
@@ -425,6 +413,7 @@ public class HomePage extends Activity implements ISpeechDelegate{
                     //Intent intent = new Intent("broadcast_trigger_tts");
                     //mContext.sendBroadcast(intent);
                 }
+                //todo: else{processing the string using other functionality}
                 read_emails = true;
             }
             else {
@@ -554,7 +543,8 @@ public class HomePage extends Activity implements ISpeechDelegate{
         }.start();
     }
 
-    public void setButtonState(final boolean bRecording) { //todo edit this to change background colour of record button preferably
+    //todo edit this to change background colour of record button preferably
+    public void setButtonState(final boolean bRecording) {
 
         final Runnable runnableUi = new Runnable(){
             @Override
@@ -592,12 +582,6 @@ public class HomePage extends Activity implements ISpeechDelegate{
         return true;
     }
 
-//    public static class TTSCommands extends AsyncTask<Void, Void, JSONObject> {
-//        protected JSONObject doInBackground(Void... none) {
-//            return TextToSpeech.sharedInstance().getVoices();
-//        }
-//    }
-
     static class MyTokenProvider implements TokenProvider {
 
         String m_strTokenFactoryURL = null;
@@ -628,8 +612,7 @@ public class HomePage extends Activity implements ISpeechDelegate{
         }
     }
 
-    public String getMailMessage(Message mail)
-    {
+    public String getMailMessage(Message mail) {
         String full_message = "";
         try{
             String subject = mail.getSubject();
@@ -699,8 +682,7 @@ public class HomePage extends Activity implements ISpeechDelegate{
         return full_message;
     }
 
-    public String getTextFromMimeMultipart(MimeMultipart multipart) throws MessagingException, IOException
-    {
+    public String getTextFromMimeMultipart(MimeMultipart multipart) throws MessagingException, IOException {
         String text = "";
         int j = 0;
         int multipart_length = multipart.getCount();
@@ -744,11 +726,33 @@ public class HomePage extends Activity implements ISpeechDelegate{
         return text;
     }
 
+    @Override
+    public void onActivityResult(int requestCode, int resultCode, Intent intent) {
+        super.onActivityResult(requestCode, resultCode, intent);
+        switch(requestCode) {
+            case (SETTINGS_REQ_CODE) : {
+                if (resultCode == RESULT_OK) {
+                    Log.d(TAG, "Received broadcast from Settings indicating changed settings.");
+                    Bundle b = intent.getExtras();
+                    int temp = b.getInt("Unread_email_amnt");
+                    if(maximum_unread_emails != temp && temp > 0)
+                    {
+                        maximum_unread_emails = temp;
+                        SharedPreferences settings = getSharedPreferences(PREFS, 0);
+                        SharedPreferences.Editor editor = settings.edit();
+                        editor.putInt("unread_email_amount", maximum_unread_emails);
+                        editor.apply();
+                    }
+                }
+                break;
+            }
+        }
+    }
+
     BroadcastReceiver broadcastReceiverTriggerTTS =  new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            Log.d(TAG, "Received broadcast to trigger TTS.");
-
+            Log.d(TAG, "Received broadcast to trigger TTS conversion.");
             new Thread() {
                 public void run() {
                     try {
@@ -772,27 +776,39 @@ public class HomePage extends Activity implements ISpeechDelegate{
     BroadcastReceiver broadcastReceiverEndOfSynthesis =  new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            Log.d(TAG, "Received broadcast from TTS.");
+            Log.d(TAG, "Received broadcast from TTS indicating end of synthesis.");
             aState = ApplicationState.IDLE;
+        }
+    };
+
+    BroadcastReceiver broadcastReceiverEmailInitialized =  new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            Log.d(TAG, "Received broadcast indicating email initialization.");
+            new Thread() {
+                public void run() {
+                    try {
+                        if (!synthesizer_queue.isEmpty() && aState.equals(ApplicationState.IDLE)) {
+                            String message = synthesizer_queue.poll();
+                            Log.d(TAG, "Reading message: " + message);
+                            TextToSpeech.sharedInstance().synthesize(message, getApplicationContext());
+                        }
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }
+            }.start();
         }
     };
 
     BroadcastReceiver broadcastReceiverReceivedSms =  new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-
             Bundle b = intent.getExtras();
 
             String message = b.getString("message");
             String contact_number = b.getString("contact");
-
-            Log.d(TAG, "Received message in main activity: " + message);
-            Log.d(TAG, "Received message from phone number: " + contact_number);
-
             String contact_name = getContactName(getApplicationContext(), contact_number, true);
-
-            Log.d(TAG, "Phone number identified as: " + contact_name);
-
             String output = "Text received from ";
 
             if(!contact_name.equals(""))
@@ -803,9 +819,7 @@ public class HomePage extends Activity implements ISpeechDelegate{
                 output += contact_number;
 
             output += " with the following message. " + message;
-
             Log.d(TAG, output);
-
             synthesizer_queue.add(output);
 
             Intent intent_trigger_tts = new Intent("broadcast_trigger_tts");
@@ -813,8 +827,8 @@ public class HomePage extends Activity implements ISpeechDelegate{
         }
     };
 
-    public static String getContactName(Context context, String search_term, boolean isNumber)
-    {
+    //todo make sure this works as test with greg lead to reading his number and not name from his sms
+    public static String getContactName(Context context, String search_term, boolean isNumber) {
         Uri uri = ContactsContract.Data.CONTENT_URI;
         String[] projection = {ContactsContract.Data.DISPLAY_NAME};
         String name = "";
@@ -841,8 +855,7 @@ public class HomePage extends Activity implements ISpeechDelegate{
         return name;
     }
 
-    public static String getContactNumber(Context context, String name)
-    {
+    public static String getContactNumber(Context context, String name) {
         Uri uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI;
         String[] projection = {ContactsContract.CommonDataKinds.Phone.NUMBER};
         String contactNumber = "";
@@ -865,8 +878,7 @@ public class HomePage extends Activity implements ISpeechDelegate{
         return contactNumber;
     }
 
-    public static String getContactEmail(Context context, String name)
-    {
+    public static String getContactEmail(Context context, String name) {
         Uri uri = ContactsContract.CommonDataKinds.Email.CONTENT_URI;
         String[] projection = {ContactsContract.CommonDataKinds.Email.ADDRESS};
         String email = "";
