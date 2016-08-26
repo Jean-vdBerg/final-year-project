@@ -93,7 +93,7 @@ public class MainActivity extends Activity {
 
     static MailHandler mailSender = new MailHandler("jeanvdberg1994@gmail.com", "<password>");
 
-    int maximum_unread_emails = 10; //todo allow user to change this value in settings
+    int maximum_unread_emails = 2; //todo allow user to change this value in settings
 
     public static class FragmentTabSTT extends Fragment implements ISpeechDelegate {
 
@@ -104,7 +104,12 @@ public class MainActivity extends Activity {
             IDLE, CONNECTING, CONNECTED
         }
 
+        private enum ApplicationState {
+            IDLE, READ_UNREAD_EMAILS, SST_CONVERSION, TTS_CONVERSION
+        }
+
         ConnectionState mState = ConnectionState.IDLE;
+        ApplicationState aState = ApplicationState.READ_UNREAD_EMAILS; //todo implement application states
         public View mView = null;
         public Context mContext = null;
         public JSONObject jsonModels = null;
@@ -168,7 +173,7 @@ public class MainActivity extends Activity {
                         spinner.setEnabled(true);
                         SpeechToText.sharedInstance().stopRecognition(); //uses OnMessage() function to display results
                         setButtonState(false);
-                    }//todo find way to detect end of speaking then use .stoprecognition function
+                    }
                 }
             });
 
@@ -318,7 +323,8 @@ public class MainActivity extends Activity {
                 public void run() {
                     TextView textResult = (TextView)mView.findViewById(R.id.textResult);
                     if(complete) {
-                        //process string here to find keywords: Text, Mail, Phone numbers (10 digits) and Names of Contacts
+                        //process string here to find keywords: Text, Email, Phone numbers (10 digits) and Names of Contacts
+                        //todo add processing for answering yes or no to the read emails out loud question
                         String textArray[] = result.split(" ");
                         if(textArray[0].equalsIgnoreCase("text"))
                         {
@@ -346,6 +352,7 @@ public class MainActivity extends Activity {
                             }
                             else {
                                 //unknown contact name or incorrectly translated
+                                //TextToSpeech.sharedInstance().synthesize("Unable to find cellphone number of specified contact");
                                 //todo inform user about error, ignore the queue if the queue is not empty
                             }
                         }
@@ -407,6 +414,7 @@ public class MainActivity extends Activity {
                             }
                             else {
                                 //unknown contact name or incorrectly translated
+                                //TextToSpeech.sharedInstance().synthesize("Unable to find email address of specified contact");
                                 //todo inform user about error, ignore the queue if the queue is not empty
                             }
                         }
@@ -529,10 +537,9 @@ public class MainActivity extends Activity {
                             Log.d(TAG, "Shutting down recognition.");
                             Log.d(TAG, "onClickRecord: CONNECTED -> IDLE");
                             //Spinner spinner = (Spinner)mView.findViewById(R.id.spinnerModels);
-                            //spinner.setEnabled(true);
+                            //spinner.setEnabled(true); //cant edit ui in non-ui related thread
                             SpeechToText.sharedInstance().stopRecognition(); //uses OnMessage() function to display results
                             //setButtonState(false);
-                            //todo: check how this operates at home
 
                             String stopMarker = (model.startsWith("ja-JP") || model.startsWith("zh-CN")) ? "。" : ". ";
                             mRecognitionResults += strFormatted.substring(0,strFormatted.length()-1) + stopMarker;
@@ -839,14 +846,13 @@ public class MainActivity extends Activity {
             int minimum = (emails.length > maximum_unread_emails) ? (unread_count - maximum_unread_emails) : 0;
 
             String unread_email_msg = "You have " + unread_count + " unread emails. ";
-            unread_email_msg += "The latest " + maximum + " emails shall now be read out loud";
-            //todo: allow user to say yes or no if they want this to occur
+            unread_email_msg += "Would you like the latest " + maximum + " emails to be read out loud?";
+            //todo: allow user to say yes or no if they want this to occur by starting recording immediately, any input besides yes => don't output
 
             synthesizer_queue.add(unread_email_msg);
 
 //            for (int i = unread_count - 1; i >= minimum; i--) {
 //                String message = getMailMessage(emails[i]);
-//                //todo test queue thoroughly
 //                synthesizer_queue.add(message);
 //            }
 
@@ -920,6 +926,8 @@ public class MainActivity extends Activity {
                 Log.d(TAG, "Unknown MimeType (Not from multipart): " + mail.getContentType());
             }
             //todo add volume control
+            //todo test SST with multiple sentences
+            //todo check format of emails i send to myself
 
             int index = from.indexOf('<'); //Jean van den Berg <jeanvdberg1994@gmail.com>
             if(index > 1 && from.charAt(index - 1) == ' ')
@@ -927,9 +935,8 @@ public class MainActivity extends Activity {
             if(index >= 1)
                 from = from.substring(0, index);
 
-
             full_message = "Mail received from: " + from + ".\nThe subject is: " + subject + ".\nThe contents are as follows. " + body;
-            //todo check what happens with synthezier when the body does not end with a fullstop and there is an attachment that is announced.
+            //todo check what happens with synthesizer when the body does not end with a fullstop and there is an attachment that is announced.
 
             Log.d(TAG, full_message);
         } catch(MessagingException e)
