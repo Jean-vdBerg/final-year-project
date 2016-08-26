@@ -1,4 +1,4 @@
-package com.ibm.watson.developer_cloud.android.examples;
+package com.project.jean.project;
 
 import java.security.AccessController;
 import java.security.Provider;

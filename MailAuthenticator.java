@@ -1,4 +1,4 @@
-package com.ibm.watson.developer_cloud.android.examples;
+package com.project.jean.project;
 
 import javax.mail.Authenticator;
 import javax.mail.PasswordAuthentication;
