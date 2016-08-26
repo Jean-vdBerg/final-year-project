@@ -21,6 +21,8 @@ import java.io.InputStream;
 import java.io.StringWriter;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.LinkedList;
+import java.util.Queue;
 import java.util.Vector;
 
 import android.app.FragmentTransaction;
@@ -71,20 +73,28 @@ import org.apache.http.impl.client.DefaultHttpClient;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
 
+import javax.mail.Address;
+import javax.mail.BodyPart;
 import javax.mail.Message;
+import javax.mail.MessagingException;
+import javax.mail.internet.MimeMultipart;
 
- public class MainActivity extends Activity {
+public class MainActivity extends Activity {
 
-	private static final String TAG = "MainActivity";
+    private static final String TAG = "MainActivity";
 
-     //static MailHandler mailSender = new MailHandler("jeanvdberg1994@gmail.com", "<password>");
+    static MailHandler mailSender = new MailHandler("jeanvdberg1994@gmail.com", "<password>");
 
-	TextView textTTS;
+    TextView textTTS;
 
     ActionBar.Tab tabSTT, tabTTS;
     FragmentTabSTT fragmentTabSTT = new FragmentTabSTT();
     FragmentTabTTS fragmentTabTTS = new FragmentTabTTS();
+
+    Queue<String> synthesizer_queue = new LinkedList<String>();
 
     public static class FragmentTabSTT extends Fragment implements ISpeechDelegate {
 
@@ -297,8 +307,8 @@ import javax.mail.Message;
             }
 
             if (items != null) {
-		        ArrayAdapter<ItemModel> spinnerArrayAdapter = new ArrayAdapter<ItemModel>(getActivity(), android.R.layout.simple_spinner_item, items);
-		        spinner.setAdapter(spinnerArrayAdapter);
+                ArrayAdapter<ItemModel> spinnerArrayAdapter = new ArrayAdapter<ItemModel>(getActivity(), android.R.layout.simple_spinner_item, items);
+                spinner.setAdapter(spinnerArrayAdapter);
                 spinner.setSelection(iIndexDefault);
             }
         }
@@ -348,15 +358,17 @@ import javax.mail.Message;
 
                             Log.d(TAG, "Attempting to obtain email address of contact");
 
-                            String email = getContactEmail(getActivity().getApplicationContext(), contact);
+                            String email_address = getContactEmail(getActivity().getApplicationContext(), contact);
 
-                            Log.d(TAG, "Obtained email address: " + email);
+                            Log.d(TAG, "Obtained email address: " + email_address);
 
                             //todo check if getContactEmail works
                             //if it doesn't work, try move functions to this thread
 
-                            if(email != "") {
+                            if(email_address != "") {
                                 String msg = "";
+                                String subject = "";
+
                                 int length = textArray.length;
 
                                 for (int i = 2; i < length - 1; i++) {
@@ -364,7 +376,7 @@ import javax.mail.Message;
                                 }
                                 msg += textArray[length - 1];
 
-                                //todo send email
+                                sendEmail(subject, msg, email_address);
                             }
                         }
                         else {
@@ -508,9 +520,9 @@ import javax.mail.Message;
         public void onAmplitude(double amplitude, double volume) {
             //Logger.e(TAG, "amplitude=" + amplitude + ", volume=" + volume);
         }
-    }
+        }
 
-    public static class FragmentTabTTS extends Fragment {
+        public static class FragmentTabTTS extends Fragment {
 
         public View mView = null;
         public Context mContext = null;
@@ -665,9 +677,9 @@ import javax.mail.Message;
                 e.printStackTrace();
             }
             if (items != null) {
-		        ArrayAdapter<ItemVoice> spinnerArrayAdapter = new ArrayAdapter<ItemVoice>(getActivity(), android.R.layout.simple_spinner_item, items);
-		        spinner.setAdapter(spinnerArrayAdapter);
-		        spinner.setSelection(iIndexDefault);
+                ArrayAdapter<ItemVoice> spinnerArrayAdapter = new ArrayAdapter<ItemVoice>(getActivity(), android.R.layout.simple_spinner_item, items);
+                spinner.setAdapter(spinnerArrayAdapter);
+                spinner.setSelection(iIndexDefault);
             }
         }
 
@@ -704,9 +716,9 @@ import javax.mail.Message;
                 viewPrompt.setText(getString(R.string.ttsJapanesePrompt));
             }
         }
-    }
+        }
 
-    public class MyTabListener implements ActionBar.TabListener {
+        public class MyTabListener implements ActionBar.TabListener {
 
         Fragment fragment;
         public MyTabListener(Fragment fragment) {
@@ -724,55 +736,194 @@ import javax.mail.Message;
         public void onTabReselected(ActionBar.Tab tab, FragmentTransaction ft) {
             // nothing done here
         }
-    }
+        }
 
 
-    public static class STTCommands extends AsyncTask<Void, Void, JSONObject> {
+        public static class STTCommands extends AsyncTask<Void, Void, JSONObject> {
 
         protected JSONObject doInBackground(Void... none) {
 
             return SpeechToText.sharedInstance().getModels();
         }
-    }
+        }
 
-    public static class TTSCommands extends AsyncTask<Void, Void, JSONObject> {
+        public static class TTSCommands extends AsyncTask<Void, Void, JSONObject> {
 
         protected JSONObject doInBackground(Void... none) {
 
             return TextToSpeech.sharedInstance().getVoices();
         }
+        }
+
+        @Override
+        protected void onCreate(Bundle savedInstanceState) {
+            super.onCreate(savedInstanceState);
+
+            // Strictmode needed to run the http/wss request for devices > Gingerbread
+            if (android.os.Build.VERSION.SDK_INT > android.os.Build.VERSION_CODES.GINGERBREAD) {
+                StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder()
+                        .permitAll().build();
+                StrictMode.setThreadPolicy(policy);
+            }
+
+            //setContentView(R.layout.activity_main);
+            setContentView(R.layout.activity_tab_text);
+
+            ActionBar actionBar = getActionBar();
+            actionBar.setNavigationMode(ActionBar.NAVIGATION_MODE_TABS);
+
+            tabSTT = actionBar.newTab().setText("Speech to Text");
+            tabTTS = actionBar.newTab().setText("Text to Speech");
+
+            tabSTT.setTabListener(new MyTabListener(fragmentTabSTT));
+            tabTTS.setTabListener(new MyTabListener(fragmentTabTTS));
+
+            actionBar.addTab(tabSTT);
+            actionBar.addTab(tabTTS);
+
+            //actionBar.setStackedBackgroundDrawable(new ColorDrawable(Color.parseColor("#B5C0D0")));
+
+            registerReceiver(broadcastReceiver, new IntentFilter("broadcast_sms"));
+
+            try{
+                Message[] emails = mailSender.getUnreadMail();
+                for (int i = 0; i < emails.length; i++) {
+                    String message = getMailMessage(emails[i]);
+                    //todo test queue
+                    synthesizer_queue.add(message);
+                }
+            }
+            catch(MessagingException e)
+            {
+                Log.e(TAG, "Messaging Exception when fetching unread mail.");
+                e.printStackTrace();
+            }
+
+
+            mailSender.setListener(new MyListener() {
+                @Override
+                public void callback(Message[] emails, int length) {
+                    for (int i = 0; i < length; i++) {
+                        String message = getMailMessage(emails[i]);
+                        //todo test queue
+                        synthesizer_queue.add(message);
+                    }
+                }
+            });
+            mailSender.getIncomingMail();
+        }
+
+    public String getMailMessage(Message mail)
+    {
+        String full_message = "";
+        try{
+            String subject = mail.getSubject();
+            String from = mail.getFrom()[0].toString();
+            Address[] add = mail.getFrom();
+            String body = "";
+            if(mail.isMimeType("text/plain"))
+            {
+                body = (String) mail.getContent();
+            }
+            else
+            if(mail.getContentType().toLowerCase().contains("multipart/"))
+            {
+                MimeMultipart multipart = (MimeMultipart) mail.getContent();
+                body += getTextFromMimeMultipart(multipart);
+            }
+            //                        else if(emails[i].getContentType().toLowerCase().contains("image/"))
+            //                        {
+            //                            body += "Mail has an attached image.\n";
+            //                        }
+            //                        else if(emails[i].getContentType().toLowerCase().contains("audio/"))
+            //                        {
+            //                            body += "Mail has an attached audio file.\n";
+            //                        }
+            //                        else if(emails[i].getContentType().toLowerCase().contains("video/"))
+            //                        {
+            //                            body += "Mail has an attached video file.\n";
+            //                        }
+            //                        else if(emails[i].getContentType().toLowerCase().contains("pdf"))
+            //                        {
+            //                            body += "Mail has an attached PDF.\n";
+            //                        }
+            else
+            {
+                Log.d(TAG, "Unknown MimeType (Not from multipart): " + mail.getContentType());
+            }
+            //todo process some mime types here and inform user if they got an attachment such as a pdf or whatever
+            //todo add volume control
+
+            int index = from.indexOf('<'); //Jean van den Berg <jeanvdberg1994@gmail.com>
+            if(from.charAt(index - 1) == ' ') {
+                index--;
+            }
+            from = from.substring(0, index);
+
+            full_message = "Mail received from: " + from + ".\nThe subject is: " + subject + ".\nThe contents are as follows. " + body;
+            //todo check what happens with synthezier when the body does not end with a fullstop and there is an attachment that is announced.
+
+            Log.d(TAG, full_message);
+        } catch(MessagingException e)
+        {
+            Log.e(TAG, "Messaging Exception when obtaining mail details.");
+            e.printStackTrace();
+        } catch(IOException e)
+        {
+            Log.e(TAG, "IO Exception");
+            e.printStackTrace();
+        } catch(Exception e)
+        {
+            e.printStackTrace();
+        }
+
+        return full_message;
     }
 
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-		super.onCreate(savedInstanceState);
-
-		// Strictmode needed to run the http/wss request for devices > Gingerbread
-		if (android.os.Build.VERSION.SDK_INT > android.os.Build.VERSION_CODES.GINGERBREAD) {
-			StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder()
-					.permitAll().build();
-			StrictMode.setThreadPolicy(policy);
-		}
-
-		//setContentView(R.layout.activity_main);
-        setContentView(R.layout.activity_tab_text);
-
-        ActionBar actionBar = getActionBar();
-        actionBar.setNavigationMode(ActionBar.NAVIGATION_MODE_TABS);
-
-        tabSTT = actionBar.newTab().setText("Speech to Text");
-        tabTTS = actionBar.newTab().setText("Text to Speech");
-
-        tabSTT.setTabListener(new MyTabListener(fragmentTabSTT));
-        tabTTS.setTabListener(new MyTabListener(fragmentTabTTS));
-
-        actionBar.addTab(tabSTT);
-        actionBar.addTab(tabTTS);
-
-        //actionBar.setStackedBackgroundDrawable(new ColorDrawable(Color.parseColor("#B5C0D0")));
-
-        registerReceiver(broadcastReceiver, new IntentFilter("broadcast_sms"));
-	}
+    public String getTextFromMimeMultipart(MimeMultipart multipart) throws MessagingException, IOException
+    {
+        String text = "";
+        int j = 0;
+        int multipart_length = multipart.getCount();
+        if(multipart.getContentType().toLowerCase().contains("multipart/alternative"))
+            j = multipart_length - 1;
+        //explanation: a multipart/alternative mime type is alternative versions of the same body
+        //according to RFC2046, the last bodypart is the most accurate to the original body
+        for (; j < multipart_length; j++) {
+            BodyPart bodypart = multipart.getBodyPart(j);
+            if (bodypart.isMimeType("text/plain")) {
+                text += bodypart.getContent() + "\n";
+            }
+            else if (bodypart.isMimeType("text/html")) {
+                String temp = (String) bodypart.getContent();
+                String parsedHtml = Jsoup.parse(temp).text();
+                text += parsedHtml + "\n";
+            }
+            else if(bodypart.getContentType().toLowerCase().contains("multipart/")){
+                text += getTextFromMimeMultipart((MimeMultipart) bodypart.getContent());
+            }
+            else if(bodypart.getContentType().toLowerCase().contains("image/"))
+            {
+                text += "Mail has an attached image.\n";
+            }
+            else if(bodypart.getContentType().toLowerCase().contains("audio/"))
+            {
+                text += "Mail has an attached audio file.\n";
+            }
+            else if(bodypart.getContentType().toLowerCase().contains("video/"))
+            {
+                text += "Mail has an attached video file.\n";
+            }
+            else if(bodypart.getContentType().toLowerCase().contains("pdf"))
+            {
+                text += "Mail has an attached PDF.\n";
+            }else
+            {
+                Log.d(TAG, "Unknown MimeType: " + bodypart.getContentType());
+            }
+        }
+        return text;
+    }
 
     @Override
     protected void onPause() {
@@ -839,147 +990,150 @@ import javax.mail.Message;
 
     public static String getContactName(Context context, String search_term, boolean isNumber)
     {
-        Uri uri = ContactsContract.Data.CONTENT_URI;
-        String[] projection = {ContactsContract.Data.DISPLAY_NAME};
-        String name = "";
-        String selection = "";
-        if(isNumber)
-            selection = ContactsContract.CommonDataKinds.Phone.NUMBER + " LIKE ?";
-        else
-            selection = ContactsContract.CommonDataKinds.Email.ADDRESS + " LIKE ?";
-        String[] selectionArgs = {"%" + search_term + "%"};
+    Uri uri = ContactsContract.Data.CONTENT_URI;
+    String[] projection = {ContactsContract.Data.DISPLAY_NAME};
+    String name = "";
+    String selection = "";
+    if(isNumber)
+        selection = ContactsContract.CommonDataKinds.Phone.NUMBER + " LIKE ?";
+    else
+        selection = ContactsContract.CommonDataKinds.Email.ADDRESS + " LIKE ?";
+    String[] selectionArgs = {"%" + search_term + "%"};
 
-        Cursor cursor = context.getContentResolver().query(uri, projection, selection, selectionArgs, null);
+    Cursor cursor = context.getContentResolver().query(uri, projection, selection, selectionArgs, null);
 
-        if(cursor != null && cursor.getCount() > 0 && cursor.moveToFirst())
-        {
-            name = cursor.getString(cursor.getColumnIndex(ContactsContract.Data.DISPLAY_NAME));
-        }
+    if(cursor != null && cursor.getCount() > 0 && cursor.moveToFirst())
+    {
+        name = cursor.getString(cursor.getColumnIndex(ContactsContract.Data.DISPLAY_NAME));
+    }
 
-        if(cursor != null && !cursor.isClosed()) {
-            cursor.close();
-        }
+    if(cursor != null && !cursor.isClosed()) {
+        cursor.close();
+    }
 
-        Log.d(TAG, "Obtained name: " + name);
+    Log.d(TAG, "Obtained name: " + name);
 
-        return name;
+    return name;
     }
 
     public static String getContactNumber(Context context, String name)
     {
-        Uri uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI;
-        String[] projection = {ContactsContract.CommonDataKinds.Phone.NUMBER};
-        String contactNumber = "";
-        String selection = ContactsContract.Data.DISPLAY_NAME + " LIKE ?";
-        String[] selectionArgs = {"%" + name + "%"};
+    Uri uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI;
+    String[] projection = {ContactsContract.CommonDataKinds.Phone.NUMBER};
+    String contactNumber = "";
+    String selection = ContactsContract.Data.DISPLAY_NAME + " LIKE ?";
+    String[] selectionArgs = {"%" + name + "%"};
 
-        Cursor cursor = context.getContentResolver().query(uri, projection, selection, selectionArgs, null);
+    Cursor cursor = context.getContentResolver().query(uri, projection, selection, selectionArgs, null);
 
-        if(cursor != null && cursor.getCount() > 0 && cursor.moveToFirst())
-        {
-            contactNumber = cursor.getString(cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER));
-        }
+    if(cursor != null && cursor.getCount() > 0 && cursor.moveToFirst())
+    {
+        contactNumber = cursor.getString(cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER));
+    }
 
-        if(cursor != null && !cursor.isClosed()) {
-            cursor.close();
-        }
+    if(cursor != null && !cursor.isClosed()) {
+        cursor.close();
+    }
 
-        Log.d(TAG, "Obtained number: " + contactNumber);
+    Log.d(TAG, "Obtained number: " + contactNumber);
 
-        return contactNumber;
+    return contactNumber;
     }
 
     public static String getContactEmail(Context context, String name)
     {
-        Uri uri = ContactsContract.CommonDataKinds.Email.CONTENT_URI;
-        String[] projection = {ContactsContract.CommonDataKinds.Email.ADDRESS};
-        String email = "";
-        String selection = ContactsContract.Data.DISPLAY_NAME + " LIKE ?";
-        String[] selectionArgs = {"%" + name + "%"};
+    Uri uri = ContactsContract.CommonDataKinds.Email.CONTENT_URI;
+    String[] projection = {ContactsContract.CommonDataKinds.Email.ADDRESS};
+    String email = "";
+    String selection = ContactsContract.Data.DISPLAY_NAME + " LIKE ?";
+    String[] selectionArgs = {"%" + name + "%"};
 
-        Cursor cursor = context.getContentResolver().query(uri, projection, selection, selectionArgs, null);
+    Cursor cursor = context.getContentResolver().query(uri, projection, selection, selectionArgs, null);
 
-        if(cursor != null && cursor.getCount() > 0 && cursor.moveToFirst())
-        {
-            email = cursor.getString(cursor.getColumnIndex(ContactsContract.CommonDataKinds.Email.ADDRESS));
-        }
+    if(cursor != null && cursor.getCount() > 0 && cursor.moveToFirst())
+    {
+        email = cursor.getString(cursor.getColumnIndex(ContactsContract.CommonDataKinds.Email.ADDRESS));
+    }
 
-        if(cursor != null && !cursor.isClosed()) {
-            cursor.close();
-        }
+    if(cursor != null && !cursor.isClosed()) {
+        cursor.close();
+    }
 
-        Log.d(TAG, "Obtained email address: " + email);
+    Log.d(TAG, "Obtained email address: " + email);
 
-        return email;
+    return email;
     }
 
     static class MyTokenProvider implements TokenProvider {
 
-        String m_strTokenFactoryURL = null;
+    String m_strTokenFactoryURL = null;
 
-        public MyTokenProvider(String strTokenFactoryURL) {
-            m_strTokenFactoryURL = strTokenFactoryURL;
-        }
-
-        public String getToken() {
-
-            Log.d(TAG, "attempting to get a token from: " + m_strTokenFactoryURL);
-            try {
-                // DISCLAIMER: the application developer should implement an authentication mechanism from the mobile app to the
-                // server side app so the token factory in the server only provides tokens to authenticated clients
-                HttpClient httpClient = new DefaultHttpClient();
-                HttpGet httpGet = new HttpGet(m_strTokenFactoryURL);
-                HttpResponse executed = httpClient.execute(httpGet);
-                InputStream is = executed.getEntity().getContent();
-                StringWriter writer = new StringWriter();
-                IOUtils.copy(is, writer, "UTF-8");
-                String strToken = writer.toString();
-                Log.d(TAG, strToken);
-                return strToken;
-            } catch (IOException e) {
-                e.printStackTrace();
-                return null;
-            }
-        }
+    public MyTokenProvider(String strTokenFactoryURL) {
+        m_strTokenFactoryURL = strTokenFactoryURL;
     }
 
-	@Override
-	public boolean onCreateOptionsMenu(Menu menu) {
-		getMenuInflater().inflate(R.menu.main, menu);
-		return true;
-	}
+    public String getToken() {
 
-	/**
-	 * Play TTS Audio data
-	 *
-	 * @param view
-	 */
-	public void playTTS(View view) throws JSONException {
+        Log.d(TAG, "attempting to get a token from: " + m_strTokenFactoryURL);
+        try {
+            // DISCLAIMER: the application developer should implement an authentication mechanism from the mobile app to the
+            // server side app so the token factory in the server only provides tokens to authenticated clients
+            HttpClient httpClient = new DefaultHttpClient();
+            HttpGet httpGet = new HttpGet(m_strTokenFactoryURL);
+            HttpResponse executed = httpClient.execute(httpGet);
+            InputStream is = executed.getEntity().getContent();
+            StringWriter writer = new StringWriter();
+            IOUtils.copy(is, writer, "UTF-8");
+            String strToken = writer.toString();
+            Log.d(TAG, strToken);
+            return strToken;
+        } catch (IOException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+    }
 
-       // TextToSpeech.sharedInstance().setVoice(fragmentTabTTS.getSelectedVoice());
+    @Override
+    public boolean onCreateOptionsMenu(Menu menu) {
+        getMenuInflater().inflate(R.menu.main, menu);
+        return true;
+    }
+
+    /**
+    * Play TTS Audio data
+    *
+    * @param view
+    */
+    public void playTTS(View view) throws JSONException {
+
+        // TextToSpeech.sharedInstance().setVoice(fragmentTabTTS.getSelectedVoice());
         TextToSpeech.sharedInstance().setVoice("en-US_MichaelVoice");
         //Log.d(TAG, fragmentTabTTS.getSelectedVoice());
 
-		//Get text from text box
-		textTTS = (TextView)fragmentTabTTS.mView.findViewById(R.id.prompt);
-		String ttsText=textTTS.getText().toString();
-		Log.d(TAG, ttsText);
-		InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-		imm.hideSoftInputFromWindow(textTTS.getWindowToken(),
-				InputMethodManager.HIDE_NOT_ALWAYS);
+        //Get text from text box
+        textTTS = (TextView)fragmentTabTTS.mView.findViewById(R.id.prompt);
+        String ttsText=textTTS.getText().toString();
+        Log.d(TAG, ttsText);
+        InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        imm.hideSoftInputFromWindow(textTTS.getWindowToken(),
+                InputMethodManager.HIDE_NOT_ALWAYS);
 
-		//Call the sdk function
-		//TextToSpeech.sharedInstance().synthesize(ttsText);
-        sendEmail("Hi, this is a test email, good luck.", "jeanvdberg1994@gmail.com");
-	}
+        //Call the sdk function
+        //TextToSpeech.sharedInstance().synthesize(ttsText);
 
-    public void sendEmail(final String message, final String recipient) {
+        //sendEmail("Test", "Hi, this is a test email, good luck.", "jeanvdberg1994@gmail.com");
+        readEmails();
+        }
+
+        public static void sendEmail(final String subject, final String message, final String recipient) {
         new Thread(){
             public void run(){
                 try {
-                    MailHandler mailSender = new MailHandler("jeanvdberg1994@gmail.com", "sometimes5567");
-                    //mailSender.sendMail("Test2", message, "jeanvdberg1994@gmail.com", recipient);
-                    //Log.d(TAG, "Mail sent");
+                    //MailHandler mailSender = new MailHandler("jeanvdberg1994@gmail.com", "sometimes5567");
+
+                    mailSender.sendMail(subject, message, "jeanvdberg1994@gmail.com", recipient);
+                    Log.d(TAG, "Mail sent to " + recipient);
                 }
                 catch(Exception e)
                 {
@@ -989,28 +1143,34 @@ import javax.mail.Message;
         }.start();
     }
 
-     //todo call getMail at beginning of program to obtain unread mails currently in inbox and ask user if they must be read
-     //todo use the code below as start point
+    //todo call getMail at beginning of program to obtain unread mails currently in inbox and ask user if they must be read
 
-    public void openInbox()
+    public void readEmails()
     {
         new Thread(){
             public void run(){
                 try {
-                    MailHandler mailSender = new MailHandler("jeanvdberg1994@gmail.com", "sometimes5567");
-                    Message[] test = mailSender.getMail();
+                    //MailHandler mailSender = new MailHandler("jeanvdberg1994@gmail.com", "sometimes5567");
+                    Message[] test = mailSender.getUnreadMail();
                     int len = test.length;
                     Log.d(TAG, "Obtained emails in inbox");
                     Log.d(TAG, "Inbox contains " + len + " emails");
                     if(len > 0)
                         Log.d(TAG, "Last emails subject: " + test[len - 1].getSubject());
 
-//                    for (int i = len - 1; i > len - 100; i--) {
-//                        Log.d(TAG, "Subject: " + test[i].getSubject());
-//                    }
-                    //mailSender.closeInbox();
+                    int amntEmails = 10;
+                    if(len < 10)
+                        amntEmails = len;
+
+                    TextToSpeech.sharedInstance().setVoice("en-US_MichaelVoice");
+
+                    for (int i = len - 1; i > len - amntEmails; i--) {
+                        //Log.d(TAG, "Subject: " + test[i].getSubject());
+                        Log.d(TAG, "Email: " + test[i].toString());
+                        TextToSpeech.sharedInstance().synthesize(test[i].toString());
+                    }
                 }
-                catch(Exception e)
+                catch(MessagingException e)
                 {
                     e.printStackTrace();
                 }

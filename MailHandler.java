@@ -36,27 +36,30 @@ import android.util.Log;
 import com.sun.mail.imap.IMAPFolder;
 import com.sun.mail.imap.IMAPStore;
 
-public class MailHandler {
+public class MailHandler{
+
     private String smtp_host = "smtp.gmail.com";
     private String mail_host = "imap.gmail.com";
     private Session imap_session;
     private Session smtp_session;
     private Folder inbox;
-    private Folder inbox2;
+    //private Folder inbox2;
     private Store store;
-    private IMAPStore store2;
-    private MailAuthenticator authenticator;
+    //private IMAPStore store2;
+    //private MailAuthenticator authenticator;
     private static String email_address = "jeanvdberg1994@gmail.com";
     private static String password = "<password>";
 
     private static final String TAG = "MailHandler";
+
+    private MyListener listener;
 
     static {
         Security.addProvider(new JSSEProvider());
     }
 
     public MailHandler(String mail_address, String password) {
-        authenticator = new MailAuthenticator(mail_address, password);
+        //authenticator = new MailAuthenticator(mail_address, password);
 
         Properties props_smtp = new Properties();
         props_smtp.put("mail.smtp.auth", "true");
@@ -78,41 +81,12 @@ public class MailHandler {
 
         imap_session = Session.getInstance(props_imap);
 
-        try{
-            store2 = (IMAPStore) imap_session.getStore("imaps");
-            store2.connect(authenticator.getEmailAddress(), authenticator.getPassword());
-            if(!store2.hasCapability("IDLE"))
-                throw new RuntimeException("Server does not support IDLE"); //should never happen
 
-            inbox2 = (IMAPFolder) store2.getFolder("Inbox");
-            inbox2.addMessageCountListener(new MessageCountListener() {
-                @Override
-                public void messagesAdded(MessageCountEvent messageCountEvent) {
-                    Log.d(TAG, "Message has been added");
+    }
 
-                    Message[] messages = messageCountEvent.getMessages();
-                    try {
-                        Log.d(TAG, "The subject is: " + messages[0].getSubject());
-                    }
-                    catch(MessagingException e)
-                    {
-                        e.printStackTrace();
-                    }
-                    //todo pass message to main activity
-                }
-
-                @Override
-                public void messagesRemoved(MessageCountEvent messageCountEvent) {
-                    Log.d(TAG, "Message has been removed");
-                }
-            });
-
-            checkEmails(inbox2);
-        }
-        catch(Exception e)
-        {
-            e.printStackTrace();
-        }
+    public void setListener(MyListener listener)
+    {
+        this.listener = listener;
     }
 
     public void checkEmails(final Folder folder) {
@@ -211,45 +185,70 @@ public class MailHandler {
         Transport.send(message);
     }
 
-    public Message[] getMail() throws MessagingException
+    public Message[] getUnreadMail() throws MessagingException
     {
         store = imap_session.getStore("imaps");
-        store.connect(mail_host, authenticator.getEmailAddress(), authenticator.getPassword());
+        store.connect(mail_host, email_address, password);
         //inbox  = store.getFolder("Inbox");
 
         inbox = store.getFolder("Inbox");
 
         inbox.open(Folder.READ_ONLY);
-        inbox.addMessageCountListener(new MessageCountListener() {
-            @Override
-            public void messagesAdded(MessageCountEvent messageCountEvent) {
-                Log.d(TAG, "Message has been added");
-            }
-
-            @Override
-            public void messagesRemoved(MessageCountEvent messageCountEvent) {
-
-            }
-        });
 
         //Message[] results = inbox.getMessages();
         //Flags.Flag.SEEN <- entire inbox
         FlagTerm flag_term = new FlagTerm(new Flags(Flags.Flag.SEEN), false);
         Message[] results = inbox.search(flag_term);
 
-        //((IMAPFolder) inbox).idle();
+        closeInbox(store, inbox);
 
         return results;
     }
 
-    public void closeInbox()
+    public void getIncomingMail()
+    {
+        try{
+            store = (IMAPStore) imap_session.getStore("imaps");
+            store.connect(email_address, password);
+            if(!((IMAPStore)store).hasCapability("IDLE"))
+                throw new RuntimeException("Server does not support IDLE"); //should never happen
+
+            inbox = (IMAPFolder) store.getFolder("Inbox");
+            inbox.addMessageCountListener(new MessageCountListener() {
+                @Override
+                public void messagesAdded(MessageCountEvent messageCountEvent) {
+                    Log.d(TAG, "Message has been added");
+
+                    Message[] messages = messageCountEvent.getMessages();
+                    listener.callback(messages, messages.length);
+                }
+
+                @Override
+                public void messagesRemoved(MessageCountEvent messageCountEvent) {
+                    Log.d(TAG, "Message has been removed");
+                }
+            });
+
+            checkEmails(inbox);
+        }
+        catch(Exception e)
+        {
+            e.printStackTrace();
+        }
+//        finally //seems redundant
+//        {
+//            closeInbox(store, inbox);
+//        }
+    }
+
+    public void closeInbox(Store store, Folder folder)
     {
         try
         {
-            if(inbox2.isOpen())
-                inbox2.close(false);
-            if(store2.isConnected())
-                store2.close();
+            if(folder.isOpen())
+                folder.close(false);
+            if(store.isConnected())
+                store.close();
         }
         catch(Exception e)
         {
