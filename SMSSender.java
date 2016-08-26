@@ -8,6 +8,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.Bundle;
 import android.telephony.SmsManager;
+import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
@@ -76,6 +77,7 @@ public class SMSSender
 
         SmsManager sms = SmsManager.getDefault();
         sms.sendTextMessage(phoneNumber, null, message, null, null);
+        Log.d("SMSSender", "Sms sent");
         //sms.sendTextMessage(phoneNumber, null, message, sentPI, deliveredPI);
     }
 }
