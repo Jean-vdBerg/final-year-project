@@ -90,6 +90,7 @@ public class MainActivity extends Activity {
     private static final String TAG = "MainActivity";
 
     static Queue<String> synthesizer_queue = new LinkedList<>();
+    static Queue<String> unread_mail_queue = new LinkedList<>();
 
     static MailHandler mailSender = new MailHandler("jeanvdberg1994@gmail.com", "<password>");
 
@@ -99,7 +100,7 @@ public class MainActivity extends Activity {
         IDLE, READ_UNREAD_EMAILS, SST_CONVERSION, TTS_CONVERSION
     }
 
-    static ApplicationState aState = ApplicationState.READ_UNREAD_EMAILS; //todo implement application states
+    static ApplicationState aState = ApplicationState.IDLE; //todo implement application states
 
     private static boolean read_emails = false;
 
@@ -151,6 +152,7 @@ public class MainActivity extends Activity {
 
                     if (mState == ConnectionState.IDLE) {
                         mState = ConnectionState.CONNECTING;
+                        aState = ApplicationState.SST_CONVERSION;
                         Log.d(TAG, "onClickRecord: IDLE -> CONNECTING");
                         Spinner spinner = (Spinner)mView.findViewById(R.id.spinnerModels);
                         spinner.setEnabled(false);
@@ -324,14 +326,34 @@ public class MainActivity extends Activity {
         public void displayResult(final String result, final boolean complete) {
             if(complete) {
                 //process string here to find keywords: Text, Email, Phone numbers (10 digits) and Names of Contacts
-                if(aState.equals(ApplicationState.READ_UNREAD_EMAILS))
+                if(!read_emails)
                 {
+                    aState = ApplicationState.IDLE;
                     if(result.toLowerCase().contains("yes"))
                     {
-                        //todo output emails here?
-                        read_emails = true;
+                        //todo test this at home
+                        new Thread() {
+                            public void run() {
+                                try {
+                                    while (!unread_mail_queue.isEmpty())
+                                    {
+                                        if (aState.equals(ApplicationState.IDLE)) {
+                                            aState = ApplicationState.TTS_CONVERSION;
+                                            String message = unread_mail_queue.poll();
+                                            Log.d(TAG, "Reading message: " + message);
+                                            TextToSpeech.sharedInstance().synthesize(message, mContext);
+                                        }
+                                    }
+                                } catch (Exception e) {
+                                    e.printStackTrace();
+                                }
+                            }
+                        }.start();
+                        //read_emails = true;
+                        //Intent intent = new Intent("broadcast_trigger_tts");
+                        //mContext.sendBroadcast(intent);
                     }
-                    aState = ApplicationState.IDLE;
+                    read_emails = true;
                 }
                 else {
                     String textArray[] = result.split(" ");
@@ -357,10 +379,13 @@ public class MainActivity extends Activity {
 
                             SMSSender smsSender = new SMSSender();
                             smsSender.sendSMS(phone_num, msg);
+
+                            aState = ApplicationState.IDLE;
                         } else {
                             //unknown contact name or incorrectly translated
-                            //TextToSpeech.sharedInstance().synthesize("Unable to find cellphone number of specified contact");
-                            //todo inform user about error, ignore the queue if the queue is not empty
+                            aState = ApplicationState.TTS_CONVERSION;
+                            TextToSpeech.sharedInstance().synthesize("Unable to find cellphone number of specified contact.", mContext);
+                            //todo test this
                         }
                     } else if (textArray[0].equalsIgnoreCase("email")) {
                         String contact = textArray[1];
@@ -409,15 +434,21 @@ public class MainActivity extends Activity {
                                 e.printStackTrace();
                             }
 
+                            aState = ApplicationState.IDLE;
                         } else {
                             //unknown contact name or incorrectly translated
-                            //TextToSpeech.sharedInstance().synthesize("Unable to find email address of specified contact");
-                            //todo inform user about error, ignore the queue if the queue is not empty
+                            aState = ApplicationState.TTS_CONVERSION;
+                            TextToSpeech.sharedInstance().synthesize("Unable to find email address of specified contact.", mContext);
+                            //todo test this
                         }
                     } else {
-                        //todo inform user that command was not understood, ignore the queue if the queue is not empty
+                        //inform user that command was not understood, ignore the queue if the queue is not empty
+                        aState = ApplicationState.TTS_CONVERSION;
+                        TextToSpeech.sharedInstance().synthesize("Command could not be understood.", mContext);
+                        //todo test this
                         //could also check if a number was spoken manually
                     }
+
                 }
             }
 
@@ -623,14 +654,13 @@ public class MainActivity extends Activity {
 
             mHandler = new Handler();
 
-            if(read_emails == true) {
-                new Thread() { //todo only run this if user said yes to reading emails
+            //Output question to ask for reading of emails
+            if(!read_emails) {
+                new Thread() {
                     public void run() {
                         try {
-                            while (!synthesizer_queue.isEmpty())
-                            {
+                            if (!synthesizer_queue.isEmpty()) {
                                 if (aState.equals(ApplicationState.IDLE)) {
-                                    aState = ApplicationState.TTS_CONVERSION;
                                     String message = synthesizer_queue.poll();
                                     Log.d(TAG, "Reading message: " + message);
                                     TextToSpeech.sharedInstance().synthesize(message, mContext);
@@ -867,12 +897,11 @@ public class MainActivity extends Activity {
 //
 //            String unread_email_msg = "You have " + unread_count + " unread emails. ";
 //            unread_email_msg += "Would you like the latest " + maximum + " emails to be read out loud?";
-//            //todo: allow user to say yes or no if they want this to occur by starting recording immediately, any input besides yes => don't output
 //
 //            synthesizer_queue.add(unread_email_msg);
 //
 //            for (int i = unread_count - 1; i >= minimum; i--) {
-//                String message = getMailMessage(emails[i]);//todo remove after testing looping synthesis
+//                String message = getMailMessage(emails[i]);
 //                synthesizer_queue.add(message);
 //            }
 //
@@ -907,7 +936,7 @@ public class MainActivity extends Activity {
 
                     for (int i = unread_count - 1; i >= minimum; i--) {
                         String message = getMailMessage(emails[i]);//todo remove after testing looping synthesis
-                        synthesizer_queue.add(message);
+                        unread_mail_queue.add(message);
                     }
 
                     mailSender.setListener(new MyListener() {
@@ -916,6 +945,9 @@ public class MainActivity extends Activity {
                             for (int i = 0; i < length; i++) {
                                 String message = getMailMessage(emails[i]);
                                 synthesizer_queue.add(message);
+
+                                Intent intent_trigger_tts = new Intent("broadcast_trigger_tts");
+                                sendBroadcast(intent_trigger_tts);
                             }
                         }
                     });
@@ -1089,7 +1121,24 @@ public class MainActivity extends Activity {
         @Override
         public void onReceive(Context context, Intent intent) {
             Log.d(TAG, "Received broadcast to trigger TTS.");
-            aState = ApplicationState.TTS_CONVERSION;
+
+            new Thread() { //todo test this
+                public void run() {
+                    try {
+                        while (!synthesizer_queue.isEmpty())
+                        {
+                            if (aState.equals(ApplicationState.IDLE)) {
+                                aState = ApplicationState.TTS_CONVERSION;
+                                String message = synthesizer_queue.poll();
+                                Log.d(TAG, "Reading message: " + message);
+                                TextToSpeech.sharedInstance().synthesize(message, getApplicationContext());
+                            }
+                        }
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }
+            }.start();
         }
     };
 
@@ -1131,11 +1180,14 @@ public class MainActivity extends Activity {
             //String name_test = getContactName(getApplicationContext(), email, false);
             //output += " (" + number + ", " + email + ", " + name_test;
 
-            output += " with the following message: " + message;
+            output += " with the following message. " + message;
 
             Log.d(TAG, output);
 
             synthesizer_queue.add(output);
+
+            Intent intent_trigger_tts = new Intent("broadcast_trigger_tts");
+            sendBroadcast(intent_trigger_tts);
 
             //TextToSpeech.sharedInstance().setVoice("en-US_MichaelVoice");
 
