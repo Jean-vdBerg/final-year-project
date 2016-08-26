@@ -15,6 +15,7 @@ import javax.mail.Authenticator;
 import javax.mail.FetchProfile;
 import javax.mail.Flags;
 import javax.mail.Folder;
+import javax.mail.FolderClosedException;
 import javax.mail.Message;
 import javax.mail.MessagingException;
 import javax.mail.Multipart;
@@ -33,6 +34,7 @@ import javax.mail.search.FlagTerm;
 import android.util.Log;
 
 import com.sun.mail.imap.IMAPFolder;
+import com.sun.mail.imap.IMAPStore;
 
 public class MailHandler {
     private String smtp_host = "smtp.gmail.com";
@@ -40,8 +42,12 @@ public class MailHandler {
     private Session imap_session;
     private Session smtp_session;
     private Folder inbox;
+    private Folder inbox2;
     private Store store;
+    private IMAPStore store2;
     private MailAuthenticator authenticator;
+    private static String email_address = "jeanvdberg1994@gmail.com";
+    private static String password = "<password>";
 
     private static final String TAG = "MailHandler";
 
@@ -58,7 +64,9 @@ public class MailHandler {
         props_smtp.put("mail.smtp.host", smtp_host);
         props_smtp.put("mail.smtp.port", "587");
 
-        smtp_session = Session.getDefaultInstance(props_smtp, authenticator);
+       // smtp_session = Session.getDefaultInstance(props_smtp, authenticator);
+
+        smtp_session = Session.getInstance(props_smtp);
 
         Properties props_imap = new Properties();
         props_imap.setProperty("mail.store.protocol", "imaps");
@@ -66,10 +74,129 @@ public class MailHandler {
         props_imap.setProperty("mail.imaps.port", "993");
        // props_imap.setProperty("mail.imaps.socketFactory.class", "javax.net.ssl.SSLSocketFactory");
        // props_imap.setProperty("mail.imaps.socketFactory.fallback", "false");
-        props_imap.setProperty("mail.imaps.timeout", "10000");
+        props_imap.setProperty("mail.imaps.timeout", "100000");
 
         imap_session = Session.getInstance(props_imap);
+
+        try{
+            store2 = (IMAPStore) imap_session.getStore("imaps");
+            store2.connect(authenticator.getEmailAddress(), authenticator.getPassword());
+            if(!store2.hasCapability("IDLE"))
+                throw new RuntimeException("Server does not support IDLE"); //should never happen
+
+            inbox2 = (IMAPFolder) store2.getFolder("Inbox");
+            inbox2.addMessageCountListener(new MessageCountListener() {
+                @Override
+                public void messagesAdded(MessageCountEvent messageCountEvent) {
+                    Log.d(TAG, "Message has been added");
+
+                    Message[] messages = messageCountEvent.getMessages();
+                    try {
+                        Log.d(TAG, "The subject is: " + messages[0].getSubject());
+                    }
+                    catch(MessagingException e)
+                    {
+                        e.printStackTrace();
+                    }
+                    //todo pass message to main activity
+                }
+
+                @Override
+                public void messagesRemoved(MessageCountEvent messageCountEvent) {
+                    Log.d(TAG, "Message has been removed");
+                }
+            });
+
+            checkEmails(inbox2);
+        }
+        catch(Exception e)
+        {
+            e.printStackTrace();
+        }
     }
+
+    public void checkEmails(final Folder folder) {
+        new Thread(){
+            volatile boolean active = true;
+
+            public void kill()
+            {
+                active = false;
+            }
+
+            public void run(){
+                while(active) {
+                    try {
+                        openFolder(folder);
+                        Log.d(TAG, "IMAP folder being set to idle");
+                        ((IMAPFolder) folder).idle();
+                    }
+                    catch(FolderClosedException e)
+                    {
+                        //ignore
+                    }
+                    catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                }
+            }
+        }.start();
+
+    }
+
+    public static void openFolder(final Folder inbox) throws MessagingException
+    {
+        if(inbox == null)
+        {
+            throw new MessagingException("Folder is null");
+        }
+        else
+        {
+            Store store = inbox.getStore();
+            if(store != null && !store.isConnected())
+            {
+                store.connect(email_address, password);
+            }
+
+            if(!inbox.isOpen())
+            {
+                inbox.open(Folder.READ_ONLY);
+                if(!inbox.isOpen())
+                    throw new MessagingException("Unable to open folder");
+            }
+        }
+    }
+
+//    public static class MailThread extends Thread{
+//        private final Folder folder;
+//        private boolean active = true;
+//
+//        public MailThread(Folder folder)
+//        {
+//            super();
+//            this.folder = folder;
+//        }
+//
+//        public synchronized void kill()
+//        {
+//            active = false;
+//        }
+//
+//        @Override
+//        public void run(){
+//            while(active)
+//            {
+//                try{
+//                    Log.d(TAG, "IMAP folder being set to idle");
+//                    ((IMAPFolder) folder).idle();
+//                }
+//                catch(Exception e)
+//                {
+//                    e.printStackTrace();
+//                }
+//            }
+//        }
+//    }
 
     public synchronized void sendMail(String subject, String body, String sender, String recipients) throws Exception {
         MimeMessage message = new MimeMessage(smtp_session);
@@ -119,8 +246,10 @@ public class MailHandler {
     {
         try
         {
-            inbox.close(false);
-            store.close();
+            if(inbox2.isOpen())
+                inbox2.close(false);
+            if(store2.isConnected())
+                store2.close();
         }
         catch(Exception e)
         {

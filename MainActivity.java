@@ -78,12 +78,13 @@ import javax.mail.Message;
 
 	private static final String TAG = "MainActivity";
 
+     //static MailHandler mailSender = new MailHandler("jeanvdberg1994@gmail.com", "<password>");
+
 	TextView textTTS;
 
     ActionBar.Tab tabSTT, tabTTS;
     FragmentTabSTT fragmentTabSTT = new FragmentTabSTT();
     FragmentTabTTS fragmentTabTTS = new FragmentTabTTS();
-    static MailHandler mailSender = new MailHandler("jeanvdberg1994@gmail.com", "<password>");
 
     public static class FragmentTabSTT extends Fragment implements ISpeechDelegate {
 
@@ -976,6 +977,7 @@ import javax.mail.Message;
         new Thread(){
             public void run(){
                 try {
+                    MailHandler mailSender = new MailHandler("jeanvdberg1994@gmail.com", "sometimes5567");
                     //mailSender.sendMail("Test2", message, "jeanvdberg1994@gmail.com", recipient);
                     //Log.d(TAG, "Mail sent");
                 }
@@ -995,6 +997,7 @@ import javax.mail.Message;
         new Thread(){
             public void run(){
                 try {
+                    MailHandler mailSender = new MailHandler("jeanvdberg1994@gmail.com", "sometimes5567");
                     Message[] test = mailSender.getMail();
                     int len = test.length;
                     Log.d(TAG, "Obtained emails in inbox");
