@@ -21,6 +21,7 @@ import java.io.InputStream;
 import java.io.StringWriter;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.Queue;
 import java.util.Vector;
@@ -83,18 +84,18 @@ import javax.mail.MessagingException;
 import javax.mail.internet.MimeMultipart;
 
 public class MainActivity extends Activity {
-
-    private static final String TAG = "MainActivity";
-
-    static MailHandler mailSender = new MailHandler("jeanvdberg1994@gmail.com", "<password>");
-
     TextView textTTS;
-
     ActionBar.Tab tabSTT, tabTTS;
     FragmentTabSTT fragmentTabSTT = new FragmentTabSTT();
     FragmentTabTTS fragmentTabTTS = new FragmentTabTTS();
 
-    Queue<String> synthesizer_queue = new LinkedList<String>();
+    private static final String TAG = "MainActivity";
+
+    static Queue<String> synthesizer_queue = new LinkedList<String>();
+
+    static MailHandler mailSender = new MailHandler("jeanvdberg1994@gmail.com", "<password>");
+
+    int maximum_unread_emails = 10; //todo allow user to change this value in settings
 
     public static class FragmentTabSTT extends Fragment implements ISpeechDelegate {
 
@@ -208,11 +209,11 @@ public class MainActivity extends Activity {
             SpeechToText.sharedInstance().initWithContext(this.getHost(serviceURL), getActivity().getApplicationContext(), sConfig);
 
             // token factory is the preferred authentication method (service credentials are not distributed in the client app)
-            if (tokenFactoryURL.equals(getString(R.string.defaultTokenFactory)) == false) {
+            if (!tokenFactoryURL.equals(getString(R.string.defaultTokenFactory))) {
                 SpeechToText.sharedInstance().setTokenProvider(new MyTokenProvider(tokenFactoryURL));
             }
             // Basic Authentication
-            else if (username.equals(getString(R.string.defaultUsername)) == false) {
+            else if (!username.equals(getString(R.string.defaultUsername))) {
                 SpeechToText.sharedInstance().setCredentials(username, password);
             } else {
                 // no authentication method available
@@ -348,12 +349,14 @@ public class MainActivity extends Activity {
                                 SMSSender smsSender = new SMSSender();
                                 smsSender.sendSMS(number, msg);
                             }
+                            else {
+                                //unknown contact name or incorrectly translated
+                                //todo inform user about error, ignore the queue if the queue is not empty
+                            }
                         }
                         else
                         if(textArray[0].equalsIgnoreCase("mail"))
                         {
-                            //todo get subject somehow
-
                             String contact = textArray[1];
 
                             Log.d(TAG, "Attempting to obtain email address of contact");
@@ -365,23 +368,55 @@ public class MainActivity extends Activity {
                             //todo check if getContactEmail works
                             //if it doesn't work, try move functions to this thread
 
+                            //TEXT <NAME> <CONTENTS>
+                            //MAIL <NAME> <SUBJECT> END SUBJECT <BODY>
+                            //assumes 1 word names
+
                             if(email_address != "") {
                                 String msg = "";
                                 String subject = "";
+                                int msg_start = 2;
 
                                 int length = textArray.length;
+                                for (int i = 2; i < length; i++) {
+                                    if(textArray[i].equalsIgnoreCase("end") && textArray[i].equalsIgnoreCase("subject"))
+                                    {
+                                        msg_start = i + 2;
+                                        for (int j = 2; j < msg_start; j++) {
+                                            subject += textArray[i] + " ";
+                                        }
+                                        break;
+                                    }
+                                }
 
-                                for (int i = 2; i < length - 1; i++) {
+                                for (int i = msg_start; i < length - 1; i++) {
                                     msg += textArray[i] + " ";
                                 }
                                 msg += textArray[length - 1];
 
-                                sendEmail(subject, msg, email_address);
+                                try
+                                {
+                                    mailSender.sendMail(email_address, subject, msg);
+                                }
+                                catch(MessagingException e)
+                                {
+                                    Log.e(TAG, "Messaging Exception when sending email.");
+                                    e.printStackTrace();
+                                }
+                                catch (Exception e)
+                                {
+                                    Log.e(TAG, "Unknown Exception when sending email.");
+                                    e.printStackTrace();
+                                }
+
+                            }
+                            else {
+                                //unknown contact name or incorrectly translated
+                                //todo inform user about error, ignore the queue if the queue is not empty
                             }
                         }
                         else {
-                            //todo inform user that command was not understood
-
+                            //todo inform user that command was not understood, ignore the queue if the queue is not empty
                             //could also check if a number was spoken manually
                         }
                     }
@@ -520,9 +555,9 @@ public class MainActivity extends Activity {
         public void onAmplitude(double amplitude, double volume) {
             //Logger.e(TAG, "amplitude=" + amplitude + ", volume=" + volume);
         }
-        }
+    }
 
-        public static class FragmentTabTTS extends Fragment {
+    public static class FragmentTabTTS extends Fragment {
 
         public View mView = null;
         public Context mContext = null;
@@ -536,7 +571,7 @@ public class MainActivity extends Activity {
             mContext = getActivity().getApplicationContext();
 
             setText();
-            if (initTTS() == false) {
+            if (!initTTS()) {
                 TextView viewPrompt = (TextView) mView.findViewById(R.id.prompt);
                 viewPrompt.setText("Error: no authentication credentials or token available, please enter your authentication information");
                 return mView;
@@ -601,18 +636,19 @@ public class MainActivity extends Activity {
             TextToSpeech.sharedInstance().initWithContext(this.getHost(serviceURL));
 
             // token factory is the preferred authentication method (service credentials are not distributed in the client app)
-            if (tokenFactoryURL.equals(getString(R.string.defaultTokenFactory)) == false) {
+            if (!tokenFactoryURL.equals(getString(R.string.defaultTokenFactory))) {
                 TextToSpeech.sharedInstance().setTokenProvider(new MyTokenProvider(tokenFactoryURL));
             }
             // Basic Authentication
-            else if (username.equals(getString(R.string.defaultUsername)) == false) {
+            else if (!username.equals(getString(R.string.defaultUsername))) {
                 TextToSpeech.sharedInstance().setCredentials(username, password);
             } else {
                 // no authentication method available
                 return false;
             }
 
-            TextToSpeech.sharedInstance().setVoice(getString(R.string.voiceDefault));
+            //TextToSpeech.sharedInstance().setVoice(getString(R.string.voiceDefault));
+            TextToSpeech.sharedInstance().setVoice("en-US_MichaelVoice");
 
             return true;
         }
@@ -716,102 +752,111 @@ public class MainActivity extends Activity {
                 viewPrompt.setText(getString(R.string.ttsJapanesePrompt));
             }
         }
-        }
+    }
 
-        public class MyTabListener implements ActionBar.TabListener {
+    public class MyTabListener implements ActionBar.TabListener {
 
-        Fragment fragment;
-        public MyTabListener(Fragment fragment) {
-            this.fragment = fragment;
-        }
+    Fragment fragment;
+    public MyTabListener(Fragment fragment) {
+        this.fragment = fragment;
+    }
 
-        public void onTabSelected(ActionBar.Tab tab, FragmentTransaction ft) {
-            ft.replace(R.id.fragment_container, fragment);
-        }
+    public void onTabSelected(ActionBar.Tab tab, FragmentTransaction ft) {
+        ft.replace(R.id.fragment_container, fragment);
+    }
 
-        public void onTabUnselected(ActionBar.Tab tab, FragmentTransaction ft) {
-            ft.remove(fragment);
-        }
+    public void onTabUnselected(ActionBar.Tab tab, FragmentTransaction ft) {
+        ft.remove(fragment);
+    }
 
-        public void onTabReselected(ActionBar.Tab tab, FragmentTransaction ft) {
-            // nothing done here
-        }
-        }
+    public void onTabReselected(ActionBar.Tab tab, FragmentTransaction ft) {
+        // nothing done here
+    }
+    }
 
-
-        public static class STTCommands extends AsyncTask<Void, Void, JSONObject> {
+    public static class STTCommands extends AsyncTask<Void, Void, JSONObject> {
 
         protected JSONObject doInBackground(Void... none) {
 
             return SpeechToText.sharedInstance().getModels();
         }
-        }
+    }
 
-        public static class TTSCommands extends AsyncTask<Void, Void, JSONObject> {
+    public static class TTSCommands extends AsyncTask<Void, Void, JSONObject> {
 
         protected JSONObject doInBackground(Void... none) {
 
             return TextToSpeech.sharedInstance().getVoices();
         }
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        // Strictmode needed to run the http/wss request for devices > Gingerbread
+        if (android.os.Build.VERSION.SDK_INT > android.os.Build.VERSION_CODES.GINGERBREAD) {
+            StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder()
+                    .permitAll().build();
+            StrictMode.setThreadPolicy(policy);
         }
 
-        @Override
-        protected void onCreate(Bundle savedInstanceState) {
-            super.onCreate(savedInstanceState);
+        //setContentView(R.layout.activity_main);
+        setContentView(R.layout.activity_tab_text);
 
-            // Strictmode needed to run the http/wss request for devices > Gingerbread
-            if (android.os.Build.VERSION.SDK_INT > android.os.Build.VERSION_CODES.GINGERBREAD) {
-                StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder()
-                        .permitAll().build();
-                StrictMode.setThreadPolicy(policy);
+        ActionBar actionBar = getActionBar();
+        actionBar.setNavigationMode(ActionBar.NAVIGATION_MODE_TABS);
+
+        tabSTT = actionBar.newTab().setText("Speech to Text");
+        tabTTS = actionBar.newTab().setText("Text to Speech");
+
+        tabSTT.setTabListener(new MyTabListener(fragmentTabSTT));
+        tabTTS.setTabListener(new MyTabListener(fragmentTabTTS));
+
+        actionBar.addTab(tabSTT);
+        actionBar.addTab(tabTTS);
+
+        //actionBar.setStackedBackgroundDrawable(new ColorDrawable(Color.parseColor("#B5C0D0")));
+
+        registerReceiver(broadcastReceiver, new IntentFilter("broadcast_sms"));
+
+        try{
+            Message[] emails = mailSender.getUnreadMail(); //todo ensure TTS is initialized before this is called
+            int unread_count = emails.length;
+            for (int i = unread_count - 1; i > unread_count - maximum_unread_emails - 1; i--) {
+                String message = getMailMessage(emails[i]);
+                //todo test queue thoroughly
+                synthesizer_queue.add(message);
             }
 
-            //setContentView(R.layout.activity_main);
-            setContentView(R.layout.activity_tab_text);
+            Iterator it = synthesizer_queue.iterator();
 
-            ActionBar actionBar = getActionBar();
-            actionBar.setNavigationMode(ActionBar.NAVIGATION_MODE_TABS);
+            Log.d(TAG, "Queue contains " + synthesizer_queue.size() + " elements.");
 
-            tabSTT = actionBar.newTab().setText("Speech to Text");
-            tabTTS = actionBar.newTab().setText("Text to Speech");
+            while(it.hasNext())
+            {
+                String iteratorValue = (String) it.next();
+                Log.d(TAG, "Current msg:\n" + iteratorValue);
+            }
+        }
+        catch(MessagingException e)
+        {
+            Log.e(TAG, "Messaging Exception when fetching unread mail.");
+            e.printStackTrace();
+        }
 
-            tabSTT.setTabListener(new MyTabListener(fragmentTabSTT));
-            tabTTS.setTabListener(new MyTabListener(fragmentTabTTS));
-
-            actionBar.addTab(tabSTT);
-            actionBar.addTab(tabTTS);
-
-            //actionBar.setStackedBackgroundDrawable(new ColorDrawable(Color.parseColor("#B5C0D0")));
-
-            registerReceiver(broadcastReceiver, new IntentFilter("broadcast_sms"));
-
-            try{
-                Message[] emails = mailSender.getUnreadMail();
-                for (int i = 0; i < emails.length; i++) {
+        mailSender.setListener(new MyListener() {
+            @Override
+            public void callback(Message[] emails, int length) {
+                for (int i = 0; i < length; i++) {
                     String message = getMailMessage(emails[i]);
-                    //todo test queue
+                    //todo test queue thoroughly
                     synthesizer_queue.add(message);
                 }
             }
-            catch(MessagingException e)
-            {
-                Log.e(TAG, "Messaging Exception when fetching unread mail.");
-                e.printStackTrace();
-            }
-
-
-            mailSender.setListener(new MyListener() {
-                @Override
-                public void callback(Message[] emails, int length) {
-                    for (int i = 0; i < length; i++) {
-                        String message = getMailMessage(emails[i]);
-                        //todo test queue
-                        synthesizer_queue.add(message);
-                    }
-                }
-            });
-            mailSender.getIncomingMail();
-        }
+        });
+        mailSender.getIncomingMail();
+    }
 
     public String getMailMessage(Message mail)
     {
@@ -819,11 +864,14 @@ public class MainActivity extends Activity {
         try{
             String subject = mail.getSubject();
             String from = mail.getFrom()[0].toString();
-            Address[] add = mail.getFrom();
             String body = "";
             if(mail.isMimeType("text/plain"))
             {
                 body = (String) mail.getContent();
+            }
+            else if (mail.isMimeType("text/html")) {
+                String temp = (String) mail.getContent();
+                body = Jsoup.parse(temp).text();
             }
             else
             if(mail.getContentType().toLowerCase().contains("multipart/"))
@@ -851,7 +899,6 @@ public class MainActivity extends Activity {
             {
                 Log.d(TAG, "Unknown MimeType (Not from multipart): " + mail.getContentType());
             }
-            //todo process some mime types here and inform user if they got an attachment such as a pdf or whatever
             //todo add volume control
 
             int index = from.indexOf('<'); //Jean van den Berg <jeanvdberg1994@gmail.com>
@@ -964,27 +1011,20 @@ public class MainActivity extends Activity {
             else
                 output += contact_number;
 
-            String number = getContactNumber(getApplicationContext(), contact_name);
+            //String number = getContactNumber(getApplicationContext(), contact_name);
+            //String email = getContactEmail(getApplicationContext(), contact_name);
+            //String name_test = getContactName(getApplicationContext(), email, false);
+            //output += " (" + number + ", " + email + ", " + name_test;
 
-            String email = getContactEmail(getApplicationContext(), contact_name);
-
-            String name_test = getContactName(getApplicationContext(), email, false);
-
-            output += " (" + number + ", " + email + ", " + name_test;
-
-            output += ") with the following message: " + message;
+            output += " with the following message: " + message;
 
             Log.d(TAG, output);
 
-            TextToSpeech.sharedInstance().setVoice("en-US_MichaelVoice");
+            synthesizer_queue.add(output);
+
+            //TextToSpeech.sharedInstance().setVoice("en-US_MichaelVoice");
 
             //TextToSpeech.sharedInstance().synthesize(output);
-
-            if(number != "") {
-                SMSSender smsSender = new SMSSender();
-                smsSender.sendSMS(number, "Phone number identified as: " + contact_name);
-                Log.d(TAG, "Sms sent");
-            }
         }
     };
 
@@ -1108,7 +1148,7 @@ public class MainActivity extends Activity {
     public void playTTS(View view) throws JSONException {
 
         // TextToSpeech.sharedInstance().setVoice(fragmentTabTTS.getSelectedVoice());
-        TextToSpeech.sharedInstance().setVoice("en-US_MichaelVoice");
+        //TextToSpeech.sharedInstance().setVoice("en-US_MichaelVoice");
         //Log.d(TAG, fragmentTabTTS.getSelectedVoice());
 
         //Get text from text box
@@ -1121,61 +1161,57 @@ public class MainActivity extends Activity {
 
         //Call the sdk function
         //TextToSpeech.sharedInstance().synthesize(ttsText);
-
         //sendEmail("Test", "Hi, this is a test email, good luck.", "jeanvdberg1994@gmail.com");
-        readEmails();
-        }
-
-        public static void sendEmail(final String subject, final String message, final String recipient) {
-        new Thread(){
-            public void run(){
-                try {
-                    //MailHandler mailSender = new MailHandler("jeanvdberg1994@gmail.com", "sometimes5567");
-
-                    mailSender.sendMail(subject, message, "jeanvdberg1994@gmail.com", recipient);
-                    Log.d(TAG, "Mail sent to " + recipient);
-                }
-                catch(Exception e)
-                {
-                    e.printStackTrace();
-                }
-            }
-        }.start();
+        //readEmails();
     }
 
-    //todo call getMail at beginning of program to obtain unread mails currently in inbox and ask user if they must be read
+//    public static void sendEmail(final String subject, final String message, final String recipient) {
+//        new Thread(){
+//            public void run(){
+//                try {
+//                    mailSender.sendMail(recipient, subject, message);
+//                    Log.d(TAG, "Mail sent to " + recipient);
+//                }
+//                catch(Exception e)
+//                {
+//                    e.printStackTrace();
+//                }
+//            }
+//        }.start();
+//    }
 
-    public void readEmails()
-    {
-        new Thread(){
-            public void run(){
-                try {
-                    //MailHandler mailSender = new MailHandler("jeanvdberg1994@gmail.com", "sometimes5567");
-                    Message[] test = mailSender.getUnreadMail();
-                    int len = test.length;
-                    Log.d(TAG, "Obtained emails in inbox");
-                    Log.d(TAG, "Inbox contains " + len + " emails");
-                    if(len > 0)
-                        Log.d(TAG, "Last emails subject: " + test[len - 1].getSubject());
-
-                    int amntEmails = 10;
-                    if(len < 10)
-                        amntEmails = len;
-
-                    TextToSpeech.sharedInstance().setVoice("en-US_MichaelVoice");
-
-                    for (int i = len - 1; i > len - amntEmails; i--) {
-                        //Log.d(TAG, "Subject: " + test[i].getSubject());
-                        Log.d(TAG, "Email: " + test[i].toString());
-                        TextToSpeech.sharedInstance().synthesize(test[i].toString());
-                    }
-                }
-                catch(MessagingException e)
-                {
-                    e.printStackTrace();
-                }
-
-            }
-        }.start();
-    }
+//    public void readEmails()
+//    {
+//        new Thread(){
+//            public void run(){
+//                try {
+//                    //MailHandler mailSender = new MailHandler("jeanvdberg1994@gmail.com", "sometimes5567");
+//                    Message[] test = mailSender.getUnreadMail();
+//                    int len = test.length;
+//                    Log.d(TAG, "Obtained emails in inbox");
+//                    Log.d(TAG, "Inbox contains " + len + " emails");
+//                    if(len > 0)
+//                        Log.d(TAG, "Last emails subject: " + test[len - 1].getSubject());
+//
+//                    int amntEmails = 10;
+//                    if(len < 10)
+//                        amntEmails = len;
+//
+//                    TextToSpeech.sharedInstance().setVoice("en-US_MichaelVoice");
+//
+//                    for (int i = len - 1; i > len - amntEmails; i--) {
+//                        //Log.d(TAG, "Subject: " + test[i].getSubject());
+//                        Log.d(TAG, "Email: " + test[i].toString());
+//                        TextToSpeech.sharedInstance().synthesize(test[i].toString());
+//                    }
+//                }
+//                catch(MessagingException e)
+//                {
+//                    Log.e(TAG, "Messaging Exception when fetching unread mail.");
+//                    e.printStackTrace();
+//                }
+//
+//            }
+//        }.start();
+//    }
 }

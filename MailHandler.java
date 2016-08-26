@@ -25,6 +25,7 @@ import javax.mail.Store;
 import javax.mail.Transport;
 import javax.mail.event.MessageCountEvent;
 import javax.mail.event.MessageCountListener;
+import javax.mail.internet.AddressException;
 import javax.mail.internet.InternetAddress;
 import javax.mail.internet.MimeBodyPart;
 import javax.mail.internet.MimeMessage;
@@ -43,12 +44,9 @@ public class MailHandler{
     private Session imap_session;
     private Session smtp_session;
     private Folder inbox;
-    //private Folder inbox2;
     private Store store;
-    //private IMAPStore store2;
-    //private MailAuthenticator authenticator;
-    private static String email_address = "jeanvdberg1994@gmail.com";
-    private static String password = "<password>";
+    private static String email_address = "";
+    private static String password = "";
 
     private static final String TAG = "MailHandler";
 
@@ -58,8 +56,9 @@ public class MailHandler{
         Security.addProvider(new JSSEProvider());
     }
 
-    public MailHandler(String mail_address, String password) {
-        //authenticator = new MailAuthenticator(mail_address, password);
+    public MailHandler(String email_address, String password) {
+        this.email_address = email_address;
+        this.password = password;
 
         Properties props_smtp = new Properties();
         props_smtp.put("mail.smtp.auth", "true");
@@ -75,13 +74,9 @@ public class MailHandler{
         props_imap.setProperty("mail.store.protocol", "imaps");
         props_imap.setProperty("mail.imaps.host", mail_host);
         props_imap.setProperty("mail.imaps.port", "993");
-       // props_imap.setProperty("mail.imaps.socketFactory.class", "javax.net.ssl.SSLSocketFactory");
-       // props_imap.setProperty("mail.imaps.socketFactory.fallback", "false");
         props_imap.setProperty("mail.imaps.timeout", "100000");
 
         imap_session = Session.getInstance(props_imap);
-
-
     }
 
     public void setListener(MyListener listener)
@@ -115,7 +110,6 @@ public class MailHandler{
                 }
             }
         }.start();
-
     }
 
     public static void openFolder(final Folder inbox) throws MessagingException
@@ -172,41 +166,36 @@ public class MailHandler{
 //        }
 //    }
 
-    public synchronized void sendMail(String subject, String body, String sender, String recipients) throws Exception {
+    public synchronized void sendMail(String recipients, String subject, String body) throws MessagingException {
         MimeMessage message = new MimeMessage(smtp_session);
         DataHandler handler = new DataHandler(new ByteArrayDataSource(body.getBytes(), "text/plain"));
-        message.setSender(new InternetAddress(sender));
+        message.setSender(new InternetAddress(email_address));
         message.setSubject(subject);
         message.setDataHandler(handler);
-        if (recipients.indexOf(',') > 0)
-            message.setRecipients(Message.RecipientType.TO, InternetAddress.parse(recipients));
-        else
-            message.setRecipient(Message.RecipientType.TO, new InternetAddress(recipients));
+//        if (recipients.indexOf(',') > 0)
+//            message.setRecipients(Message.RecipientType.TO, InternetAddress.parse(recipients));
+//        else
+        message.setRecipient(Message.RecipientType.TO, new InternetAddress(recipients));
         Transport.send(message);
+        Log.d(TAG, "Mail sent");
     }
 
     public Message[] getUnreadMail() throws MessagingException
     {
         store = imap_session.getStore("imaps");
         store.connect(mail_host, email_address, password);
-        //inbox  = store.getFolder("Inbox");
-
         inbox = store.getFolder("Inbox");
-
         inbox.open(Folder.READ_ONLY);
 
-        //Message[] results = inbox.getMessages();
-        //Flags.Flag.SEEN <- entire inbox
         FlagTerm flag_term = new FlagTerm(new Flags(Flags.Flag.SEEN), false);
         Message[] results = inbox.search(flag_term);
-
-        closeInbox(store, inbox);
 
         return results;
     }
 
     public void getIncomingMail()
     {
+        closeInbox(store, inbox);
         try{
             store = (IMAPStore) imap_session.getStore("imaps");
             store.connect(email_address, password);
