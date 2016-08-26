@@ -1,4 +1,4 @@
-package com.ibm.watson.developer_cloud.android.examples;
+package com.project.jean.project;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -7,7 +7,6 @@ import android.os.Bundle;
 import android.provider.Telephony;
 import android.telephony.SmsMessage;
 import android.util.Log;
-import android.widget.Toast;
 
 public class SMSReceiver extends BroadcastReceiver
 {

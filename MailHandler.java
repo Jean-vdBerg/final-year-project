@@ -1,4 +1,9 @@
-package com.ibm.watson.developer_cloud.android.examples;
+package com.project.jean.project;
+
+import android.util.Log;
+
+import com.sun.mail.imap.IMAPFolder;
+import com.sun.mail.imap.IMAPStore;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -23,11 +28,6 @@ import javax.mail.internet.InternetAddress;
 import javax.mail.internet.MimeMessage;
 import javax.mail.search.FlagTerm;
 
-import android.util.Log;
-
-import com.sun.mail.imap.IMAPFolder;
-import com.sun.mail.imap.IMAPStore;
-
 public class MailHandler{
 
     private String smtp_host = "smtp.gmail.com";
@@ -41,7 +41,7 @@ public class MailHandler{
 
     private static final String TAG = "MailHandler";
 
-    private MyListener listener;
+    private MailListener listener;
 
     static {
         Security.addProvider(new JSSEProvider());
@@ -75,7 +75,7 @@ public class MailHandler{
         imap_session = Session.getInstance(props_imap);
     }
 
-    public void setListener(MyListener listener)
+    public void setListener(MailListener listener)
     {
         this.listener = listener;
     }
