@@ -1,7 +1,6 @@
 package com.ibm.watson.developer_cloud.android.examples;
 
 import java.io.ByteArrayInputStream;
-import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -10,26 +9,18 @@ import java.util.Properties;
 
 import javax.activation.DataHandler;
 import javax.activation.DataSource;
-import javax.activation.FileDataSource;
-import javax.mail.Authenticator;
-import javax.mail.FetchProfile;
 import javax.mail.Flags;
 import javax.mail.Folder;
 import javax.mail.FolderClosedException;
 import javax.mail.Message;
 import javax.mail.MessagingException;
-import javax.mail.Multipart;
-import javax.mail.PasswordAuthentication;
 import javax.mail.Session;
 import javax.mail.Store;
 import javax.mail.Transport;
 import javax.mail.event.MessageCountEvent;
 import javax.mail.event.MessageCountListener;
-import javax.mail.internet.AddressException;
 import javax.mail.internet.InternetAddress;
-import javax.mail.internet.MimeBodyPart;
 import javax.mail.internet.MimeMessage;
-import javax.mail.internet.MimeMultipart;
 import javax.mail.search.FlagTerm;
 
 import android.util.Log;
@@ -56,9 +47,9 @@ public class MailHandler{
         Security.addProvider(new JSSEProvider());
     }
 
-    public MailHandler(String email_address, String password) {
-        this.email_address = email_address;
-        this.password = password;
+    public MailHandler(String new_email_address, String new_password) {
+        email_address = new_email_address;
+        password = new_password;
 
         Properties props_smtp = new Properties();
         props_smtp.put("mail.smtp.auth", "true");
@@ -188,21 +179,20 @@ public class MailHandler{
         inbox.open(Folder.READ_ONLY);
 
         FlagTerm flag_term = new FlagTerm(new Flags(Flags.Flag.SEEN), false);
-        Message[] results = inbox.search(flag_term);
 
-        return results;
+        return inbox.search(flag_term);
     }
 
     public void getIncomingMail()
     {
         closeInbox(store, inbox);
         try{
-            store = (IMAPStore) imap_session.getStore("imaps");
+            store = imap_session.getStore("imaps"); //(IMAPStore)
             store.connect(email_address, password);
             if(!((IMAPStore)store).hasCapability("IDLE"))
-                throw new RuntimeException("Server does not support IDLE"); //should never happen
+                Log.e(TAG, "Server does not support IDLE"); //should never happen
 
-            inbox = (IMAPFolder) store.getFolder("Inbox");
+            inbox = store.getFolder("Inbox"); //(IMAPFolder)
             inbox.addMessageCountListener(new MessageCountListener() {
                 @Override
                 public void messagesAdded(MessageCountEvent messageCountEvent) {
@@ -224,10 +214,6 @@ public class MailHandler{
         {
             e.printStackTrace();
         }
-//        finally //seems redundant
-//        {
-//            closeInbox(store, inbox);
-//        }
     }
 
     public void closeInbox(Store store, Folder folder)

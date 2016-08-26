@@ -75,9 +75,7 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 import org.jsoup.Jsoup;
-import org.jsoup.nodes.Document;
 
-import javax.mail.Address;
 import javax.mail.BodyPart;
 import javax.mail.Message;
 import javax.mail.MessagingException;
@@ -91,7 +89,7 @@ public class MainActivity extends Activity {
 
     private static final String TAG = "MainActivity";
 
-    static Queue<String> synthesizer_queue = new LinkedList<String>();
+    static Queue<String> synthesizer_queue = new LinkedList<>();
 
     static MailHandler mailSender = new MailHandler("jeanvdberg1994@gmail.com", "<password>");
 
@@ -120,7 +118,7 @@ public class MainActivity extends Activity {
             mHandler = new Handler();
 
             setText();
-            if (initSTT() == false) {
+            if (!initSTT()) {
                 displayResult("Error: no authentication credentials/token available, please enter your authentication information", false);
                 return mView;
             }
@@ -156,7 +154,7 @@ public class MainActivity extends Activity {
                         new AsyncTask<Void, Void, Void>(){
                             @Override
                             protected Void doInBackground(Void... none) {
-                                SpeechToText.sharedInstance().recognize();
+                                SpeechToText.sharedInstance().recognize(); //uses OnMessage() function to display results
                                 return null;
                             }
                         }.execute();
@@ -168,9 +166,9 @@ public class MainActivity extends Activity {
                         Log.d(TAG, "onClickRecord: CONNECTED -> IDLE");
                         Spinner spinner = (Spinner)mView.findViewById(R.id.spinnerModels);
                         spinner.setEnabled(true);
-                        SpeechToText.sharedInstance().stopRecognition();
+                        SpeechToText.sharedInstance().stopRecognition(); //uses OnMessage() function to display results
                         setButtonState(false);
-                    }
+                    }//todo find way to detect end of speaking then use .stoprecognition function
                 }
             });
 
@@ -319,7 +317,6 @@ public class MainActivity extends Activity {
                 @Override
                 public void run() {
                     TextView textResult = (TextView)mView.findViewById(R.id.textResult);
-                    String temp = "";
                     if(complete) {
                         //process string here to find keywords: Text, Mail, Phone numbers (10 digits) and Names of Contacts
                         String textArray[] = result.split(" ");
@@ -336,7 +333,7 @@ public class MainActivity extends Activity {
                             //todo check if getContactNumber works
                             //if it doesn't work, try move functions to this thread
 
-                            if(phone_num != "") {
+                            if(!phone_num.equals("")) {
                                 String msg = "";
                                 String number = "";
                                 int length = textArray.length;
@@ -447,9 +444,6 @@ public class MainActivity extends Activity {
             }.start();*/
         }
 
-        /**
-         * Change the button's label
-         */
         public void setButtonLabel(final int buttonId, final String label) {
             final Runnable runnableUi = new Runnable(){
                 @Override
@@ -465,9 +459,6 @@ public class MainActivity extends Activity {
             }.start();
         }
 
-        /**
-         * Change the button's drawable
-         */
         public void setButtonState(final boolean bRecording) {
 
             final Runnable runnableUi = new Runnable(){
@@ -485,7 +476,7 @@ public class MainActivity extends Activity {
             }.start();
         }
 
-        // delegages ----------------------------------------------
+        // delegates ----------------------------------------------
 
         public void onOpen() {
             Log.d(TAG, "onOpen");
@@ -533,8 +524,19 @@ public class MainActivity extends Activity {
                         }
                         String strFormatted = Character.toUpperCase(str.charAt(0)) + str.substring(1);
                         if (obj.getString("final").equals("true")) {
+
+                            //todo
+                            mState = ConnectionState.IDLE;
+                            Log.d(TAG, "onClickRecord: CONNECTED -> IDLE");
+                            Spinner spinner = (Spinner)mView.findViewById(R.id.spinnerModels);
+                            spinner.setEnabled(true);
+                            SpeechToText.sharedInstance().stopRecognition(); //uses OnMessage() function to display results
+                            setButtonState(false);
+                            //todo: check how this operates at home
+
                             String stopMarker = (model.startsWith("ja-JP") || model.startsWith("zh-CN")) ? "。" : ". ";
                             mRecognitionResults += strFormatted.substring(0,strFormatted.length()-1) + stopMarker;
+
 
                             displayResult(mRecognitionResults, true);
                         } else {
@@ -612,6 +614,15 @@ public class MainActivity extends Activity {
             });
 
             mHandler = new Handler();
+
+            Log.d(TAG, "Starting reading of unread emails."); //todo: change READ to READ_WRITE in smsreceiver class else you probably reread the same emails, want to set them to read after reading
+
+            while(!synthesizer_queue.isEmpty())
+            {
+                String message = synthesizer_queue.poll();
+                TextToSpeech.sharedInstance().synthesize(message); //todo: test how well this works
+            }
+
             return mView;
         }
 
@@ -821,9 +832,19 @@ public class MainActivity extends Activity {
         registerReceiver(broadcastReceiver, new IntentFilter("broadcast_sms"));
 
         try{
-            Message[] emails = mailSender.getUnreadMail(); //todo ensure TTS is initialized before this is called
+            Message[] emails = mailSender.getUnreadMail();
             int unread_count = emails.length;
-            for (int i = unread_count - 1; i > unread_count - maximum_unread_emails - 1; i--) {
+
+            int maximum = (unread_count > maximum_unread_emails) ? maximum_unread_emails : unread_count;
+            int minimum = (emails.length > maximum_unread_emails) ? (unread_count - maximum_unread_emails - 1) : 0;
+
+            String unread_email_msg = "You have " + unread_count + " unread emails.";
+            unread_email_msg += "The latest " + maximum + " emails shall now be read out loud";
+            //todo: allow user to say yes or no if they want this to occur
+
+            synthesizer_queue.add(unread_email_msg);
+
+            for (int i = unread_count - 1; i > minimum; i--) {
                 String message = getMailMessage(emails[i]);
                 //todo test queue thoroughly
                 synthesizer_queue.add(message);
@@ -850,7 +871,6 @@ public class MainActivity extends Activity {
             public void callback(Message[] emails, int length) {
                 for (int i = 0; i < length; i++) {
                     String message = getMailMessage(emails[i]);
-                    //todo test queue thoroughly
                     synthesizer_queue.add(message);
                 }
             }
@@ -996,15 +1016,13 @@ public class MainActivity extends Activity {
             Log.d(TAG, "Received message in main activity: " + message);
             Log.d(TAG, "Received message from phone number: " + contact_number);
 
-            //todo possibly improve contact name lookup
-
             String contact_name = getContactName(getApplicationContext(), contact_number, true);
 
             Log.d(TAG, "Phone number identified as: " + contact_name);
 
             String output = "Text received from ";
 
-            if(contact_name != "")
+            if(!contact_name.equals(""))
             {
                 output += contact_name;
             }
@@ -1033,7 +1051,7 @@ public class MainActivity extends Activity {
     Uri uri = ContactsContract.Data.CONTENT_URI;
     String[] projection = {ContactsContract.Data.DISPLAY_NAME};
     String name = "";
-    String selection = "";
+    String selection;
     if(isNumber)
         selection = ContactsContract.CommonDataKinds.Phone.NUMBER + " LIKE ?";
     else
@@ -1140,11 +1158,6 @@ public class MainActivity extends Activity {
         return true;
     }
 
-    /**
-    * Play TTS Audio data
-    *
-    * @param view
-    */
     public void playTTS(View view) throws JSONException {
 
         // TextToSpeech.sharedInstance().setVoice(fragmentTabTTS.getSelectedVoice());
