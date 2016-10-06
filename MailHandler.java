@@ -28,10 +28,15 @@ import javax.mail.internet.InternetAddress;
 import javax.mail.internet.MimeMessage;
 import javax.mail.search.FlagTerm;
 
+/**
+ * Class that is responsible for interacting with SMTP and IMAP servers in order to both send
+ * and receive emails programmatically. The class extracts unread emails, can send emails, and can
+ * receive incoming emails when the application is active.
+ */
 public class MailHandler{
 
-    private String smtp_host = "smtp.gmail.com";
-    private String mail_host = "imap.gmail.com";
+    private String smtp_host = "smtp.gmail.com"; //SMTP server to connect to.
+    private String mail_host = "imap.gmail.com"; //IMAP server to connect to.
     private Session imap_session;
     private Session smtp_session;
     private Folder inbox;
@@ -44,57 +49,79 @@ public class MailHandler{
     private MailListener listener;
 
     static {
-        Security.addProvider(new JSSEProvider());
+        Security.addProvider(new JSSEProvider()); //Adds more security to the mail handler class.
     }
 
+    /**
+     * Constructor which initiates the connection sessions to the SMTP and IMAP servers. The
+     * constructor requires a valid Gmail email address and password to connect.
+     * @param new_email_address Email address used for login.
+     * @param new_password Password used for login.
+     */
     public MailHandler(String new_email_address, String new_password) {
         email_address = new_email_address;
         password = new_password;
         MailAuthenticator authenticator = new MailAuthenticator(email_address, password);
+        //Authenticates the provides email address and password.
 
         Properties props_smtp = new Properties();
-        //props_smtp.setProperty("mail.transport.protocol", "smtps");
         props_smtp.setProperty("mail.smtp.auth", "true");
         props_smtp.setProperty("mail.smtp.starttls.enable", "true");
-        props_smtp.setProperty("mail.smtp.host", smtp_host);
+        props_smtp.setProperty("mail.smtp.host", smtp_host); //Set host server.
         props_smtp.setProperty("mail.smtp.port", "587");
-        //props_smtp.put("mail.smtp.socketFactory.port", "465");
-       // props_smtp.put("mail.smtp.socketFactory.class", "javax.net.ssl.SSLSocketFactory");
-        //props_smtp.put("mail.smtp.socketFactory.fallback", "false");
+        //Set properties of the connection.
 
         smtp_session = Session.getDefaultInstance(props_smtp, authenticator);
-
-        //smtp_session = Session.getInstance(props_smtp);
+        //Connects to the SMTP server using the provided details.
 
         Properties props_imap = new Properties();
         props_imap.setProperty("mail.store.protocol", "imaps");
-        props_imap.setProperty("mail.imaps.host", mail_host);
+        props_imap.setProperty("mail.imaps.host", mail_host); //Set host server.
         props_imap.setProperty("mail.imaps.port", "993");
-        props_imap.setProperty("mail.imaps.timeout", "100000");
+        props_imap.setProperty("mail.imaps.timeout", "100000"); //Long timeout to listen to inbox.
+        //Set properties of the connection to the IMAP server.
 
         imap_session = Session.getInstance(props_imap);
+        //Connects to the IMAP server using the provided details.
     }
 
+    /**
+     * Sets the listener of the Mail Handler class to the listener instantiated in the Home Page.
+     * @param listener Listener created by the Home Page that is used to send the email messages
+     *                 to the Home Page.
+     */
     public void setListener(MailListener listener)
     {
         this.listener = listener;
     }
 
+    /**
+     * Function that is called in order to run a new thread that is responsible for ensuring the
+     * IMAP folder is kept open as the folder will time out if not kept open. This ensures message
+     * added events will continously trigger when emails are received.
+     * @param folder The folder to keep open.
+     */
     public void checkEmails(final Folder folder) {
         new Thread(){
             volatile boolean active = true;
 
+            /**
+             * Function that allows the thread to be stopped.
+             */
             public void kill()
             {
                 active = false;
             }
 
+            /**
+             * Function that is called when the thread is activated.
+             */
             public void run(){
                 while(active) {
                     try {
-                        openFolder(folder);
+                        openFolder(folder); //Ensure the folder is open
                         Log.d(TAG, "IMAP folder being set to idle");
-                        ((IMAPFolder) folder).idle();
+                        ((IMAPFolder) folder).idle(); //Set the folder to idle.
                     }
                     catch(FolderClosedException e)
                     {
@@ -108,74 +135,59 @@ public class MailHandler{
         }.start();
     }
 
-    public static void openFolder(final Folder inbox) throws MessagingException
+    /**
+     * Function that ensures a selected folder is open so that the folder can be set to idle.
+     * @param folder The folder that must be kept open.
+     * @throws MessagingException Exception handled by function that calls this function.
+     */
+    public static void openFolder(final Folder folder) throws MessagingException
     {
-        if(inbox == null)
+        if(folder == null) //Ensure the folder is valid.
         {
-            throw new MessagingException("Folder is null");
+            throw new MessagingException("Folder is null."); //Folder is null, throw exception.
         }
         else
         {
-            Store store = inbox.getStore();
-            if(store != null && !store.isConnected())
+            Store store = folder.getStore(); //Get the store of the folder.
+            if(store != null && !store.isConnected()) //Check if the store is connected.
             {
-                store.connect(email_address, password);
+                store.connect(email_address, password); //Connect to the store if it is not connected.
             }
 
-            if(!inbox.isOpen())
+            if(!folder.isOpen()) //Check if the folder is open.
             {
-                inbox.open(Folder.READ_WRITE);
-                if(!inbox.isOpen())
-                    throw new MessagingException("Unable to open folder");
+                folder.open(Folder.READ_WRITE); //Reopen the folder if it is not open.
+                if(!folder.isOpen())
+                    throw new MessagingException("Unable to open folder"); //Folder can't be opened, throw exception.
             }
         }
     }
 
-//    public static class MailThread extends Thread{
-//        private final Folder folder;
-//        private boolean active = true;
-//
-//        public MailThread(Folder folder)
-//        {
-//            super();
-//            this.folder = folder;
-//        }
-//
-//        public synchronized void kill()
-//        {
-//            active = false;
-//        }
-//
-//        @Override
-//        public void run(){
-//            while(active)
-//            {
-//                try{
-//                    Log.d(TAG, "IMAP folder being set to idle");
-//                    ((IMAPFolder) folder).idle();
-//                }
-//                catch(Exception e)
-//                {
-//                    e.printStackTrace();
-//                }
-//            }
-//        }
-//    }
-
+    /**
+     * Function that is called in order to send a new email.
+     * @param recipients The recipients email address.
+     * @param subject The subject of the email.
+     * @param body The contents of the email.
+     * @throws MessagingException Function throws MessagingExceptions that occur when attempting to send email.
+     */
     public synchronized void sendMail(String recipients, String subject, String body) throws MessagingException {
-        MimeMessage message = new MimeMessage(smtp_session);
-        DataHandler handler = new DataHandler(new ByteArrayDataSource(body.getBytes(), "text/plain"));
-        message.setSender(new InternetAddress(email_address));
-        message.setSubject(subject);
-        message.setDataHandler(handler);
-//        if (recipients.indexOf(',') > 0)
-//            message.setRecipients(Message.RecipientType.TO, InternetAddress.parse(recipients));
-//        else
-        message.setRecipient(Message.RecipientType.TO, new InternetAddress(recipients));
-        Transport.send(message);
+        MimeMessage message = new MimeMessage(smtp_session); //Created a new Mime Message.
+        ByteArrayDataSource message_contents = new ByteArrayDataSource(body.getBytes(), "text/plain");
+        //Convert the message to a format that can be sent via email and set the mime type.
+        DataHandler handler = new DataHandler(message_contents); //Create a Data Handler to contain the message contents.
+        message.setSender(new InternetAddress(email_address)); //Set email sender
+        message.setSubject(subject); //Set subject
+        message.setDataHandler(handler); //Set data handler
+        message.setRecipient(Message.RecipientType.TO, new InternetAddress(recipients)); //Set recipient
+        Transport.send(message); //Send the email.
         Log.d(TAG, "Mail sent");
     }
 
+    /**
+     *
+     * @return
+     * @throws MessagingException
+     */
     public Message[] getUnreadMail() throws MessagingException
     {
         store = imap_session.getStore("imaps");
@@ -188,25 +200,37 @@ public class MailHandler{
         return inbox.search(flag_term);
     }
 
+    /**
+     * Adds a message count listener to the inbox which triggers an event when a message is added.
+     * This event is used to send the new email to the Home Page using the Mail Listener interface.
+     */
     public void getIncomingMail()
     {
         closeInbox(store, inbox);
         try{
-            store = imap_session.getStore("imaps"); //(IMAPStore)
-            store.connect(email_address, password);
-            if(!((IMAPStore)store).hasCapability("IDLE"))
+            store = imap_session.getStore("imaps");
+            store.connect(email_address, password); //Connect to the store
+            if(!((IMAPStore)store).hasCapability("IDLE")) //Ensure IMAP server has IDLE capability
                 Log.e(TAG, "Server does not support IDLE"); //should never happen
 
-            inbox = store.getFolder("Inbox"); //(IMAPFolder)
-            inbox.addMessageCountListener(new MessageCountListener() {
+            inbox = store.getFolder("Inbox"); //Obtain the inbox folder
+            inbox.addMessageCountListener(new MessageCountListener() { //Add the listener to the folder
+                /**
+                 * Function that triggers when a new message is added to the inbox of the user.
+                 * @param messageCountEvent Event that contains the details of the new email.
+                 */
                 @Override
                 public void messagesAdded(MessageCountEvent messageCountEvent) {
                     Log.d(TAG, "Message has been added");
 
-                    Message[] messages = messageCountEvent.getMessages();
-                    listener.callback(messages, messages.length);
+                    Message[] messages = messageCountEvent.getMessages(); //Obtain the email.
+                    listener.callback(messages, messages.length); //Send the email to the Home Page.
                 }
 
+                /**
+                 * Function that triggers when a message is removed from the inbox of the user.
+                 * @param messageCountEvent Event that contains the details of the new email.
+                 */
                 @Override
                 public void messagesRemoved(MessageCountEvent messageCountEvent) {
                     Log.d(TAG, "Message has been removed");
@@ -221,14 +245,24 @@ public class MailHandler{
         }
     }
 
+    /**
+     * Closes the store and folder that are currently connected to.
+     * @param store The Store object to close.
+     * @param folder The Folder object to close.
+     */
     public void closeInbox(Store store, Folder folder)
     {
         try
         {
-            if(folder.isOpen())
-                folder.close(false);
-            if(store.isConnected())
-                store.close();
+            if(folder.isOpen()) //Ensure the folder is open.
+                folder.close(false); //Close the folder.
+            if(store.isConnected()) //Ensure the store is open.
+                store.close(); //Close the store.
+        }
+        catch(MessagingException e)
+        {
+            Log.d(TAG, "MessagingException when closing inbox.");
+            e.printStackTrace();
         }
         catch(Exception e)
         {
@@ -236,134 +270,56 @@ public class MailHandler{
         }
     }
 
-//    public synchronized void sendMail(String subject, String body,
-//                                      String senderEmail, String recipients, String filePath,
-//                                      String logFilePath) throws Exception {
-//        boolean fileExists = new File(filePath).exists();
-//        if (fileExists) {
-//
-//            String from = senderEmail;
-//            String to = recipients;
-//            String fileAttachment = filePath;
-//
-//            // Define message
-//            MimeMessage message = new MimeMessage(session);
-//            message.setFrom(new InternetAddress(from));
-//            message.addRecipient(Message.RecipientType.TO, new InternetAddress(
-//                    to));
-//            message.setSubject(subject);
-//
-//            // create the message part
-//            MimeBodyPart messageBodyPart = new MimeBodyPart();
-//
-//            // fill message
-//            messageBodyPart.setText(body);
-//
-//            Multipart multipart = new MimeMultipart();
-//            multipart.addBodyPart(messageBodyPart);
-//
-//            // Part two is attachment
-//            messageBodyPart = new MimeBodyPart();
-//            DataSource source = new FileDataSource(fileAttachment);
-//            messageBodyPart.setDataHandler(new DataHandler(source));
-//            messageBodyPart.setFileName("screenShoot.jpg");
-//            multipart.addBodyPart(messageBodyPart);
-//
-//            // part three for logs
-//            messageBodyPart = new MimeBodyPart();
-//            DataSource sourceb = new FileDataSource(logFilePath);
-//            messageBodyPart.setDataHandler(new DataHandler(sourceb));
-//            messageBodyPart.setFileName("logs.txt");
-//            multipart.addBodyPart(messageBodyPart);
-//
-//            // Put parts in message
-//            message.setContent(multipart);
-//
-//            // Send the message
-//            Transport.send(message);
-//        } else {
-//            sendMail(subject, body, senderEmail, recipients);
-//        }
-//    }
-
-//    public synchronized void sendMail(String subject, String body,
-//                                      String senderEmail, String recipients, String logFilePath)
-//            throws Exception {
-//
-//        File file= new File(logFilePath);
-//        boolean fileExists =file.exists();
-//        if (fileExists) {
-//
-//            String from = senderEmail;
-//            String to = recipients;
-//
-//            // Define message
-//            MimeMessage message = new MimeMessage(session);
-//            message.setFrom(new InternetAddress(from));
-//            message.addRecipient(Message.RecipientType.TO, new InternetAddress(
-//                    to));
-//            message.setSubject(subject);
-//
-//            // create the message part
-//            MimeBodyPart messageBodyPart = new MimeBodyPart();
-//
-//            // fill message
-//            messageBodyPart.setText(body);
-//
-//            Multipart multipart = new MimeMultipart();
-//            multipart.addBodyPart(messageBodyPart);
-//
-//            // part three for logs
-//            messageBodyPart = new MimeBodyPart();
-//            DataSource sourceb = new FileDataSource(logFilePath);
-//            messageBodyPart.setDataHandler(new DataHandler(sourceb));
-//            messageBodyPart.setFileName(file.getName());
-//            multipart.addBodyPart(messageBodyPart);
-//
-//            // Put parts in message
-//            message.setContent(multipart);
-//
-//            // Send the message
-//            Transport.send(message);
-//        } else {
-//            sendMail(subject, body, senderEmail, recipients);
-//        }
-//    }
-
+    /**
+     * Class that is used to convert a String to a valid format which can be used to send an email where
+     * the data is in the form of an InputStream and the MIME type is specified.
+     */
     public class ByteArrayDataSource implements DataSource {
         private byte[] data;
         private String type;
 
+        /**
+         * Constructor that sets private variables.
+         * @param data The email contents to store in the byte array.
+         * @param type The mime content type.
+         */
         public ByteArrayDataSource(byte[] data, String type) {
             super();
             this.data = data;
             this.type = type;
+            //Sets variables.
         }
 
-        public ByteArrayDataSource(byte[] data) {
-            super();
-            this.data = data;
-        }
-
-        public void setType(String type) {
-            this.type = type;
-        }
-
+        /**
+         * Returns the MIME content type.
+         * @return String indicating MIME content type.
+         */
         public String getContentType() {
-            if (type == null)
-                return "application/octet-stream";
-            else
-                return type;
+            return type;
         }
 
+        /**
+         * Converts the byte array data to an input stream.
+         * @return InputStream that contains the data in a different format.
+         * @throws IOException
+         */
         public InputStream getInputStream() throws IOException {
             return new ByteArrayInputStream(data);
         }
 
+        /**
+         * Obtains name of Class.
+         * @return String indicating class name.
+         */
         public String getName() {
             return "ByteArrayDataSource";
         }
 
+        /**
+         * Unused but required function to implement DataSource
+         * @return
+         * @throws IOException
+         */
         public OutputStream getOutputStream() throws IOException {
             throw new IOException("Not Supported");
         }

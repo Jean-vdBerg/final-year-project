@@ -3,8 +3,17 @@ package com.project.jean.project;
 import android.telephony.SmsManager;
 import android.util.Log;
 
+/**
+ * The SMSSender class is used to send texts.
+ */
 public class SMSSender
 {
+    /**
+     * The function is called to send an SMS to the intended recipient with the specified message
+     * contents.
+     * @param phoneNumber A string containing the recipients phone number.
+     * @param message A string containing the message for the recipient.
+     */
     public void sendSMS(String phoneNumber, String message)
     {
 //        String SENT = "SMS_SENT";
@@ -64,8 +73,8 @@ public class SMSSender
 //            }
 //        }, new IntentFilter(DELIVERED));
 
-        SmsManager sms = SmsManager.getDefault();
-        sms.sendTextMessage(phoneNumber, null, message, null, null);
+        SmsManager sms = SmsManager.getDefault(); //create a SmsManager object.
+        sms.sendTextMessage(phoneNumber, null, message, null, null); //Send the text message.
         Log.d("SMSSender", "Sms sent");
         //sms.sendTextMessage(phoneNumber, null, message, sentPI, deliveredPI);
     }

@@ -3,6 +3,9 @@ package com.project.jean.project;
 import java.security.AccessController;
 import java.security.Provider;
 
+/**
+ * Class that adds an extra layer of security to the Mail Handler classes functionality.
+ */
 public final class JSSEProvider extends Provider {
 
     public JSSEProvider() {
