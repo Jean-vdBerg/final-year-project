@@ -1,6 +1,12 @@
 package com.project.jean.project;
 
 import android.app.Activity;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothHeadset;
+import android.bluetooth.BluetoothProfile;
+import android.bluetooth.BluetoothServerSocket;
+import android.bluetooth.BluetoothSocket;
 import android.content.BroadcastReceiver;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -9,10 +15,12 @@ import android.content.res.AssetManager;
 import android.database.Cursor;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
+import android.media.AudioTrack;
 import android.media.MediaRecorder;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.StrictMode;
 import android.provider.ContactsContract;
@@ -32,8 +40,12 @@ import org.jsoup.Jsoup;
 
 import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
@@ -42,6 +54,8 @@ import java.util.LinkedList;
 import java.util.Locale;
 import java.util.Queue;
 import java.util.Scanner;
+import java.util.Set;
+import java.util.UUID;
 
 import javax.mail.BodyPart;
 import javax.mail.Message;
@@ -62,6 +76,7 @@ public class HomePage extends Activity implements ISpeechDelegate{
     private static final String TAG = "MainActivity";
     private static final String PREFS = "VoiceAppPrefs";
     private final int SETTINGS_REQ_CODE = 1;
+    private final int REQUEST_ENABLE_BT = 10;
 
     static Queue<String> synthesizer_queue = new LinkedList<>();
     static Queue<String> unread_mail_queue = new LinkedList<>();
@@ -86,7 +101,9 @@ public class HomePage extends Activity implements ISpeechDelegate{
 
     ConnectionState mState = ConnectionState.IDLE;
 
-    private Handler mHandler = null;
+    private static Handler mHandler = null;
+
+    private Context mContext = null;
 
     private boolean use_custom_playback_device = false;
     private boolean use_stt_api = false;
@@ -101,15 +118,57 @@ public class HomePage extends Activity implements ISpeechDelegate{
     private static String stt_total_result = "";
     private static boolean save_recordings = false;
 
+    int uart_counter = 0;
+    int uart_counter2 = 0;
+
+    private BluetoothAdapter mBluetoothAdapter;
+
+//    private BluetoothHeadset mBluetoothHeadset;
+//    private BluetoothProfile.ServiceListener mProfileListener = new BluetoothProfile.ServiceListener() {
+//        public void onServiceConnected(int profile, BluetoothProfile proxy) {
+//            if (profile == BluetoothProfile.HEADSET) {
+//                mBluetoothHeadset = (BluetoothHeadset) proxy;
+//            }
+//        }
+//        public void onServiceDisconnected(int profile) {
+//            if (profile == BluetoothProfile.HEADSET) {
+//                mBluetoothHeadset = null;
+//            }
+//        }
+//    };
+
+    String bluetooth_dev_name = "";
+    String bluetooth_dev_mac = "";
+
+    public static final int MESSAGE_READ = 2;
+
+    private boolean bluetooth_enabled = false;
+    private static boolean bluetooth_active_connection = false;
+
+    private ConnectedThread mConnectedThread;
+    private AcceptThread mAcceptThread;
+    private ConnectThread mConnectThread;
+
+    private final UUID default_uuid = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB"); //apparently this UUID must be used for SPP
+    //private final UUID default_uuid = UUID.fromString("8ce255c0-200a-11e0-ac64-0800200c9a66");
+
+    int test_recording_index = 0;
+    String base_file_name = "mic_array_recording";
+    boolean recording_data = true;
+    File pcm_file = null;
+    BufferedWriter pcm_buffered_writer = null;
+    double int_to_double_scaler = 0.000030517578125;
+    double[] stt_buffer = new double[8192];
+    int stt_buffer_index = 0;
     /**
      *
      * @param savedInstanceState
      */
-    //todo add comments
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_home_page);
+        mContext = getApplicationContext();
 
         // Strictmode needed to run the http/wss request for devices > Gingerbread
         if (android.os.Build.VERSION.SDK_INT > android.os.Build.VERSION_CODES.GINGERBREAD) {
@@ -118,12 +177,129 @@ public class HomePage extends Activity implements ISpeechDelegate{
             StrictMode.setThreadPolicy(policy);
         }
 
-        mHandler = new Handler();
-
         SharedPreferences settings = getSharedPreferences(PREFS, 0);
         maximum_unread_emails = settings.getInt("unread_email_amount", 2);
         use_custom_playback_device = settings.getBoolean("use_custom_playback_device", false);
         use_stt_api = settings.getBoolean("use_stt_api", false);
+
+        if(use_custom_playback_device) {
+            mHandler = new Handler() {
+                @Override
+                public void handleMessage(android.os.Message msg) {
+                    byte[] encodedMessage = (byte[]) msg.obj;
+                    String decodedMessage = new String(encodedMessage, 0, msg.arg1);
+                    //Log.d(TAG, "Receiving Message - mHandler - " + decodedMessage);
+                    if (pcm_file == null) {
+                        try {
+                            pcm_file = new File(getExternalFilesDir(null), base_file_name + test_recording_index + ".txt");
+                            pcm_buffered_writer = new BufferedWriter(new FileWriter(pcm_file));
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                            Log.e(TAG, "IO exception when creating new file or opening file stream.");
+                        }
+                    }
+                    try {
+//                    for (int i = 0; i < encodedMessage.length; i++) {
+//                        //Log.d(TAG, "Arr at " + i + " = " + buffer[i]);
+//                        pcm_buffered_writer.write(encodedMessage[i] + "\n"); //convert byte to a signed int here
+//                    }
+                        for (byte temp : encodedMessage) //convert byte to a signed int here
+                        {
+                            pcm_buffered_writer.write(temp + "\n");
+                            stt_buffer[stt_buffer_index] = temp * int_to_double_scaler;
+                            stt_buffer_index++;
+                        }
+                        if (!recording_data) //todo check timing issues with this, might need to make buffer larger to avoid timing issues
+                        {
+                            pcm_buffered_writer.close();
+                            test_recording_index++;
+                            Intent intent = //update the directory of the phone
+                                    new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE);
+                            intent.setData(Uri.fromFile(pcm_file));
+                            sendBroadcast(intent);
+
+                            //// TODO: 2016/10/18 check if this works
+
+                            final String stt_result = dictionary.recognize(stt_buffer, stt_buffer_index);
+                            Log.d(TAG, "Audio recording identified as: " + stt_result);
+                            //stt_total_result += Character.toUpperCase(stt_result.charAt(0)) + stt_result.substring(1) + " "; //capitalize first letter
+                            stt_total_result += stt_result + " ";
+
+                            final Runnable runnable_ui = new Runnable() {
+                                @Override
+                                public void run() {
+                                    TextView textDisplay = (TextView) findViewById(R.id.textDisplay);
+                                    textDisplay.setText(stt_total_result);
+                                }
+                            };
+
+                            new Thread() {
+                                public void run() {
+                                    mHandler.post(runnable_ui);
+                                }
+                            }.start();
+
+                            pcm_file = null;
+                            stt_buffer_index = 0;
+                        }
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                        Log.e(TAG, "IO exception when trying to write pcm data to a file.");
+                    }
+                    super.handleMessage(msg);
+                }
+            };
+
+            mBluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+            if (mBluetoothAdapter != null) {
+                // Device does not support Bluetooth
+                //lol who has a phone that doesn't support bluetooth in 2016
+
+                if (!mBluetoothAdapter.isEnabled()) {
+                    Intent enableBtIntent = new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE);
+                    startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT);
+                } else {
+                    bluetooth_enabled = true;
+                    new AsyncTask<Void, Void, Void>() {
+                        @Override
+                        protected Void doInBackground(Void... none) {
+                            startBluetoothClient();
+                            return null;
+                        }
+                    }.execute();
+
+                    ////if you want to use BluetoothHeadset:
+                    // Establish connection to the proxy.
+                    //mBluetoothAdapter.getProfileProxy(mContext, mProfileListener, BluetoothProfile.HEADSET);
+
+                    // ... call functions on mBluetoothHeadset
+
+                    // Close proxy connection after use.
+                    //mBluetoothAdapter.closeProfileProxy(BluetoothProfile.HEADSET, mBluetoothHeadset);
+                }
+            }
+
+            //bluetooth send and receive test:
+//            Log.d(TAG, "1");
+//            int hi = 0;
+//            while (!bluetooth_active_connection) {
+//                if (hi == 0) {
+//                    Log.d(TAG, ".");
+//                    hi = 1;
+//                }
+//            }
+//            Log.d(TAG, "2");
+//            String temp = "Test bluetooth";
+//            byte[] bytes = new byte[0];
+//            try {
+//                bytes = temp.getBytes("UTF-8");
+//            } catch (UnsupportedEncodingException e) {
+//                Log.e(TAG, "UnsupportedEncodingException...");
+//                e.printStackTrace();
+//            }
+//            Log.d(TAG, "Sending bytes");
+//            BluetoothWrite(bytes);
+        }
 
 //        new Thread(){
 //            public void run(){
@@ -192,10 +368,7 @@ public class HomePage extends Activity implements ISpeechDelegate{
         }
         else
         {
-            //int buffer_size = AudioRecord.getMinBufferSize(8000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT); = 640
             dictionary = new Dictionary(getApplicationContext());
-            //recorder = new AudioRecord(MediaRecorder.AudioSource.DEFAULT, 8000,
-            //        AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_FLOAT, 8000);
             Log.d(TAG, "STT Custom initialized");
             double[] buffer = new double[2695];
             Scanner scanner = new Scanner(getResources().openRawResource(R.raw.apple01));
@@ -207,134 +380,10 @@ public class HomePage extends Activity implements ISpeechDelegate{
                 buffer[i] = scanner.nextDouble();
                 i++;
             }
-            Log.d(TAG, "Sample ready");
-            Log.d(TAG, "Start recognition");
+            Log.d(TAG, "Start recognition test");
             String result = dictionary.recognize(buffer, buffer.length);
             Log.d(TAG, "Audio signal recognized as " + result);
         }
-
-        Button buttonRecord = (Button) findViewById(R.id.buttonRecord);
-        buttonRecord.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View arg0) {
-                if(use_stt_api) {
-                    if (mState == ConnectionState.IDLE) {
-                        mState = ConnectionState.CONNECTING;
-                        aState = ApplicationState.SST_CONVERSION;
-                        Log.d(TAG, "onClickRecord: IDLE -> CONNECTING");
-                        recognition_results = "";
-                        displayResult(recognition_results, false);
-                        // start recognition
-                        new AsyncTask<Void, Void, Void>() {
-                            @Override
-                            protected Void doInBackground(Void... none) {
-                                SpeechToText.sharedInstance().recognize(); //uses OnMessage() function to display results
-                                return null;
-                            }
-                        }.execute();
-                        setButtonLabel(R.id.buttonRecord, "Connecting...");
-                        setButtonState(true);
-                    } else if (mState == ConnectionState.CONNECTED) {
-                        mState = ConnectionState.IDLE;
-                        Log.d(TAG, "onClickRecord: CONNECTED -> IDLE");
-                        SpeechToText.sharedInstance().stopRecognition(); //uses OnMessage() function to display results
-                        setButtonState(false);
-                    }
-                }
-                else
-                {
-                    if(!recording) {
-                        recording = true;
-                        recorder = new AudioRecord(MediaRecorder.AudioSource.DEFAULT, 8000,
-                                AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_FLOAT, 8000);
-                        new AsyncTask<Void, Void, Void>() {
-                            @Override
-                            protected Void doInBackground(Void... none) {
-
-                                setButtonLabel(R.id.buttonRecord, "Stop Recording");
-                                Log.d(TAG, "Recording started");
-                                recorder.startRecording();
-                                float[] f_buffer = new float[1000];
-                                double[] buffer = new double[24000];
-                                int buffer_size = 0;
-                                double max = 0;
-                                boolean data_started = false;
-                                do {
-                                    int data_read = recorder.read(f_buffer, 0, f_buffer.length, AudioRecord.READ_NON_BLOCKING);
-                                    if (data_read > 0) {
-                                        //Log.d("Dictionary", "Sample float = " + f_buffer[0]);
-                                        for (int i = 0; i < data_read; i++) {
-                                            if (f_buffer[i] > 0.0004 || f_buffer[i] < -0.0004 || data_started) {
-                                                buffer[buffer_size] = (double) f_buffer[i];
-                                                if (buffer[buffer_size] > max)
-                                                    max = buffer[buffer_size];
-                                                buffer_size++;
-                                                data_started = true;
-                                            }
-                                        }
-                                        //Log.d("Dictionary", "Sample double = " + buffer[buffer_size - data_read]);
-                                    } else if (data_read < 0) {
-                                        Log.e(TAG, "Error code " + data_read + " given by AudioRecord, consult documentation.");
-                                    }
-                                }
-                                while (recording);
-
-                                if (save_recordings){
-                                    try {
-                                        //Log.d(TAG, "Directory = " + getFilesDir()+File.separator+"test.txt");
-                                        File file = new File(getExternalFilesDir(null), recording_word + recording_index + ".txt");
-                                        recording_index++;
-                                        BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(file));
-                                        for (int i = 0; i < buffer_size; i++) {
-                                            //Log.d(TAG, "Arr at " + i + " = " + buffer[i]);
-                                            bufferedWriter.write(buffer[i] + "\n");
-                                        }
-                                        bufferedWriter.close();
-                                        Intent intent =
-                                                new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE);
-                                        intent.setData(Uri.fromFile(file));
-                                        sendBroadcast(intent);
-                                    } catch (IOException ex) {
-                                        ex.printStackTrace();
-                                    }
-                                }
-
-                                Log.d(TAG, "Max = " + max);
-                                Log.d(TAG, "Recording stopped");
-                                recorder.stop();
-                                recorder.release();
-                                final String stt_result = dictionary.recognize(buffer, buffer_size);
-                                //// TODO: 2016/10/06 check why the log likelihoods are slightly different compared to matlab
-                                Log.d(TAG, "Audio recording identified as: " + stt_result);
-                                //stt_total_result += Character.toUpperCase(stt_result.charAt(0)) + stt_result.substring(1) + " "; //capitalize first letter
-                                stt_total_result += stt_result + " ";
-
-                                final Runnable runnable_ui = new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        TextView textDisplay = (TextView) findViewById(R.id.textDisplay);
-                                        textDisplay.setText(stt_total_result);
-                                    }
-                                };
-
-                                new Thread() {
-                                    public void run() {
-                                        mHandler.post(runnable_ui);
-                                    }
-                                }.start();
-
-                                return null;
-                            }
-                        }.execute();
-                    }
-                    else
-                    {
-                        recording = false;
-                        setButtonLabel(R.id.buttonRecord, "Record");
-                    }
-                }
-            }
-        });
 
         IntentFilter filter_received_sms = new IntentFilter("broadcast_sms");
         registerReceiver(broadcastReceiverReceivedSms, filter_received_sms);
@@ -410,6 +459,144 @@ public class HomePage extends Activity implements ISpeechDelegate{
         }
 
         return super.onOptionsItemSelected(item);
+    }
+
+    /**
+     * Starts recording data using the microphone or custom hardware device and converts data to text.
+     * @param view The current view.
+     */
+    public void recordButtonPressed(View view){
+        if(use_stt_api) {
+            if (mState == ConnectionState.IDLE) {
+                mState = ConnectionState.CONNECTING;
+                aState = ApplicationState.SST_CONVERSION;
+                Log.d(TAG, "onClickRecord: IDLE -> CONNECTING");
+                recognition_results = "";
+                displayResult(recognition_results, false);
+                // start recognition
+                new AsyncTask<Void, Void, Void>() {
+                    @Override
+                    protected Void doInBackground(Void... none) {
+                        SpeechToText.sharedInstance().recognize(); //uses OnMessage() function to display results
+                        return null;
+                    }
+                }.execute();
+                setButtonLabel(R.id.buttonRecord, "Connecting...");
+                setButtonState(true);
+            } else if (mState == ConnectionState.CONNECTED) {
+                mState = ConnectionState.IDLE;
+                Log.d(TAG, "onClickRecord: CONNECTED -> IDLE");
+                SpeechToText.sharedInstance().stopRecognition(); //uses OnMessage() function to display results
+                setButtonState(false);
+            }
+        }
+        else
+        {
+            if(!recording) {
+                recording = true;
+                setButtonLabel(R.id.buttonRecord, "Stop Recording");
+                Log.d(TAG, "Recording started");
+                if(use_custom_playback_device)
+                {
+                    recording_data = true;
+                    byte[] bytes = {0x72}; //lowercase r for 'record'
+                    BluetoothWrite(bytes);
+                    //todo implement shiz
+                }
+                else {
+                    recorder = new AudioRecord(MediaRecorder.AudioSource.DEFAULT, 8000,
+                            AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_FLOAT, 8000);
+                    new AsyncTask<Void, Void, Void>() {
+                        @Override
+                        protected Void doInBackground(Void... none) {
+
+                            recorder.startRecording();
+                            float[] f_buffer = new float[1000];
+                            double[] buffer = new double[24000];
+                            int buffer_size = 0;
+                            double max = 0;
+                            boolean data_started = false;
+                            do {
+                                int data_read = recorder.read(f_buffer, 0, f_buffer.length, AudioRecord.READ_NON_BLOCKING);
+                                if (data_read > 0) {
+                                    //Log.d("Dictionary", "Sample float = " + f_buffer[0]);
+                                    for (int i = 0; i < data_read; i++) {
+                                        if (f_buffer[i] > 0.0004 || f_buffer[i] < -0.0004 || data_started) {
+                                            buffer[buffer_size] = (double) f_buffer[i];
+                                            if (buffer[buffer_size] > max)
+                                                max = buffer[buffer_size];
+                                            buffer_size++;
+                                            data_started = true;
+                                        }
+                                    }
+                                    //Log.d("Dictionary", "Sample double = " + buffer[buffer_size - data_read]);
+                                } else if (data_read < 0) {
+                                    Log.e(TAG, "Error code " + data_read + " given by AudioRecord, consult documentation.");
+                                }
+                            }
+                            while (recording);
+
+                            if (save_recordings) {
+                                try {
+                                    //Log.d(TAG, "Directory = " + getFilesDir()+File.separator+"test.txt");
+                                    File file = new File(getExternalFilesDir(null), recording_word + recording_index + ".txt");
+                                    recording_index++;
+                                    BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(file));
+                                    for (int i = 0; i < buffer_size; i++) {
+                                        //Log.d(TAG, "Arr at " + i + " = " + buffer[i]);
+                                        bufferedWriter.write(buffer[i] + "\n");
+                                    }
+                                    bufferedWriter.close();
+                                    Intent intent =
+                                            new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE);
+                                    intent.setData(Uri.fromFile(file));
+                                    sendBroadcast(intent);
+                                } catch (IOException ex) {
+                                    ex.printStackTrace();
+                                }
+                            }
+
+                            Log.d(TAG, "Max = " + max);
+                            Log.d(TAG, "Recording stopped");
+                            recorder.stop();
+                            recorder.release();
+                            final String stt_result = dictionary.recognize(buffer, buffer_size);
+                            //// TODO: 2016/10/06 check why the log likelihoods are slightly different compared to matlab
+                            Log.d(TAG, "Audio recording identified as: " + stt_result);
+                            //stt_total_result += Character.toUpperCase(stt_result.charAt(0)) + stt_result.substring(1) + " "; //capitalize first letter
+                            stt_total_result += stt_result + " ";
+
+                            final Runnable runnable_ui = new Runnable() {
+                                @Override
+                                public void run() {
+                                    TextView textDisplay = (TextView) findViewById(R.id.textDisplay);
+                                    textDisplay.setText(stt_total_result);
+                                }
+                            };
+
+                            new Thread() {
+                                public void run() {
+                                    mHandler.post(runnable_ui);
+                                }
+                            }.start();
+
+                            return null;
+                        }
+                    }.execute();
+                }
+            }
+            else
+            {
+                recording = false;
+                setButtonLabel(R.id.buttonRecord, "Record");
+                if(use_custom_playback_device)
+                {
+                    recording_data = false;
+                    byte[] bytes = {0x73}; //lowercase s for 'stop'
+                    BluetoothWrite(bytes);
+                }
+            }
+        }
     }
 
     /**
@@ -504,7 +691,6 @@ public class HomePage extends Activity implements ISpeechDelegate{
      *
      * @param message
      */
-    //todo add comments
     public void onMessage(String message) {
         try {
             JSONObject jObj = new JSONObject(message);
@@ -573,7 +759,6 @@ public class HomePage extends Activity implements ISpeechDelegate{
      * @param result
      * @param complete
      */
-    //todo add comments
     public void displayResult(final String result, final boolean complete) {
         if(use_stt_api && complete) {
             //process string here to find keywords: Text, Email, Phone numbers (10 digits) and Names of Contacts
@@ -595,8 +780,7 @@ public class HomePage extends Activity implements ISpeechDelegate{
         }.start();
     }
 
-    public void processText(final String result)
-    {
+    public void processText(final String result) {
         if (!read_emails) {
             aState = ApplicationState.IDLE;
             if (result.toLowerCase().contains("yes")) {
@@ -737,7 +921,6 @@ public class HomePage extends Activity implements ISpeechDelegate{
      * Sets the state of the record button to indicate when the button is recording.
      * @param bRecording Boolean indicating if recording is occuring or not.
      */
-    //todo edit this to change background colour of record button preferably
     public void setButtonState(final boolean bRecording) {
 
         final Runnable runnableUi = new Runnable(){
@@ -922,6 +1105,16 @@ public class HomePage extends Activity implements ISpeechDelegate{
                         editor.putBoolean("use_custom_playback_device", use_custom_playback_device); //Edit the Share Preferences.
                         editor.apply(); //Save the settings.
                     }
+                }
+                break;
+            }
+            case (REQUEST_ENABLE_BT) : {
+                if (resultCode == RESULT_OK) {
+                    bluetooth_enabled = true;
+                    startBluetoothClient();
+                }
+                if(resultCode == RESULT_CANCELED) {
+                    bluetooth_enabled = false;
                 }
                 break;
             }
@@ -1117,6 +1310,342 @@ public class HomePage extends Activity implements ISpeechDelegate{
         }
 
         return email;
+    }
+
+    public void startBluetoothClient(){
+        Log.d(TAG, "Starting bluetooth client");
+        Set<BluetoothDevice> pairedDevices = mBluetoothAdapter.getBondedDevices();
+        if (pairedDevices.size() > 0) { //check if there are paired devices
+            for (BluetoothDevice device : pairedDevices) { // Loop through paired devices
+                // Add the name and address to an array adapter to show in a ListView
+                //mArrayAdapter.add(device.getName() + "\n" + device.getAddress());
+                bluetooth_dev_name = device.getName();
+                bluetooth_dev_mac = device.getAddress();
+                break;
+            }
+        }
+        BluetoothDevice bluetooth_device =  mBluetoothAdapter.getRemoteDevice(bluetooth_dev_mac);
+        mConnectThread = new ConnectThread(bluetooth_device);
+        mConnectThread.run();
+    }
+
+    public void startBluetoothServer(){
+        mAcceptThread = new AcceptThread();
+        mAcceptThread.run();
+    }
+
+    public void manageConnectedSocket(BluetoothSocket mmSocket){
+        if(mConnectedThread != null){
+            mConnectedThread.cancel();
+            mConnectedThread = null;
+        }
+
+        Log.d(TAG, "Managing bluetooth connection");
+        mConnectedThread = new ConnectedThread(mmSocket);
+        bluetooth_active_connection = true;
+        mConnectedThread.run();
+    }
+
+    private class AcceptThread extends Thread {
+        private final BluetoothServerSocket mmServerSocket;
+
+        public AcceptThread() {
+            // Use a temporary object that is later assigned to mmServerSocket,
+            // because mmServerSocket is final
+            BluetoothServerSocket tmp = null;
+            try {
+                // MY_UUID is the app's UUID string, also used by the client code
+                tmp = mBluetoothAdapter.listenUsingRfcommWithServiceRecord("Server", default_uuid);
+            }
+            catch (IOException e) {
+                e.printStackTrace();
+                Log.e(TAG, "IO Exception when instantiating accept thread.");
+            }
+            mmServerSocket = tmp;
+        }
+
+        public void run() {
+            BluetoothSocket socket = null;
+            // Keep listening until exception occurs or a socket is returned
+            while (true) {
+                try {
+                    socket = mmServerSocket.accept();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    Log.e(TAG, "IO Exception when accepting a connection to the accept thread.");
+                    break;
+                }
+                // If a connection was accepted
+                if (socket != null) {
+                    // Do work to manage the connection (in a separate thread)
+                    manageConnectedSocket(socket);
+                    try
+                    {
+                        mmServerSocket.close();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                        Log.e(TAG, "IO Exception when closing the accept thread.");
+                    }
+                    break;
+                }
+            }
+        }
+
+        /** Will cancel the listening socket, and cause the thread to finish */
+        public void cancel() {
+            try {
+                mmServerSocket.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+                Log.e(TAG, "IO Exception when cancelling the accept thread.");
+            }
+        }
+    }
+
+    private class ConnectThread extends Thread {
+        private BluetoothSocket mmSocket;
+        private final BluetoothDevice mmDevice;
+
+        public ConnectThread(BluetoothDevice device) {
+            // Use a temporary object that is later assigned to mmSocket,
+            // because mmSocket is final
+            BluetoothSocket tmp = null;
+            mmDevice = device;
+
+            // Get a BluetoothSocket to connect with the given BluetoothDevice
+            try {
+                // MY_UUID is the app's UUID string, also used by the server code
+                tmp = device.createInsecureRfcommSocketToServiceRecord(default_uuid);
+
+            }
+            catch (IOException e) {
+                e.printStackTrace();
+                Log.e(TAG, "IO Exception when instantiating connect thread.");
+            }
+//            catch(NoSuchMethodException e)
+//            {
+//                e.printStackTrace();
+//                Log.e(TAG, "No such method exception occurred");
+//            }
+//            catch(IllegalAccessException e)
+//            {
+//                e.printStackTrace();
+//                Log.e(TAG, "Illegal access exception occurred");
+//            }
+//            catch(InvocationTargetException e)
+//            {
+//                e.printStackTrace();
+//                Log.e(TAG, "Invocation target exception occurred");
+//            }
+            mmSocket = tmp;
+        }
+
+        public void run() {
+            // Cancel discovery because it will slow down the connection
+            mBluetoothAdapter.cancelDiscovery();
+
+            try {
+                // Connect the device through the socket. This will block
+                // until it succeeds or throws an exception
+                mmSocket.connect();
+                Log.d(TAG, "Connected");
+            } catch (IOException connectException) {
+                // Unable to connect; close the socket and get out
+                Log.e(TAG, connectException.getMessage());
+
+                try {
+                    mmSocket =(BluetoothSocket) mmDevice.getClass().getMethod("createRfcommSocket", new Class[] {int.class}).invoke(mmDevice,1);
+                    mmSocket.connect();
+                }
+                catch (IOException closeException) {
+                    closeException.printStackTrace();
+                    Log.e(TAG, "IO Exception when connecting to backup socket.");
+                }
+                catch(Exception e) {
+                    e.printStackTrace();
+                    Log.e(TAG, "You are fucked");
+                }
+                return;
+            }
+
+            // Do work to manage the connection (in a separate thread)
+            manageConnectedSocket(mmSocket);
+        }
+
+        /** Will cancel an in-progress connection, and close the socket */
+        public void cancel() {
+            try {
+                mmSocket.close();
+            }
+            catch (IOException e) {
+                e.printStackTrace();
+                Log.e(TAG, "IO Exception when cancelling connect thread.");
+            }
+        }
+    }
+
+    private class ConnectedThread extends Thread {
+        private final BluetoothSocket mmSocket;
+        private final InputStream mmInStream;
+        private final OutputStream mmOutStream;
+        private AudioTrack audio_track;
+
+        public ConnectedThread(BluetoothSocket socket) {
+            mmSocket = socket;
+            InputStream tmpIn = null;
+            OutputStream tmpOut = null;
+            //audio_track = new AudioTrack(AudioManager.STREAM_VOICE_CALL, 8000, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_8BIT, 256, AudioTrack.MODE_STREAM);
+
+            // Get the input and output streams, using temp objects because
+            // member streams are final
+            try {
+                tmpIn = socket.getInputStream();
+                tmpOut = socket.getOutputStream();
+            } catch (IOException e) {
+                e.printStackTrace();
+                Log.e(TAG, "IO Exception when obtaining input and/or output stream.");
+            }
+
+            mmInStream = tmpIn;
+            mmOutStream = tmpOut;
+        }
+
+        public void run() {
+            byte[] buffer = new byte[128];  // buffer store for the stream
+            int bytes = 0;
+            // Keep listening to the InputStream until an exception occurs
+            while(true) {
+                try {
+                    // Read from the InputStream
+//                        bytes = mmInStream.read(buffer);
+//                        String readMessage = new String(buffer, 0, bytes);
+//                        uart_counter2 = uart_counter2 + bytes;
+//                        Log.d(TAG, "Total bytes2: " + uart_counter2);
+//                        int avail = mmInStream.available();
+//                        Log.d(TAG, "Bytes available: " + avail);
+                    // Send the obtained bytes to the UI Activity
+                    //mHandler.obtainMessage(MESSAGE_READ, bytes, -1, readMessage)
+                    //        .sendToTarget();
+                    //                   if (mmSocket.isConnected()) {
+//                    int avail = mmInStream.available();
+//                    if (avail > 0) {
+//                        uart_counter = uart_counter + avail;
+//                        Log.d(TAG, "Bytes available: " + avail);
+//                        Log.d(TAG, "Total bytes: " + uart_counter);
+//                        for(int i = 0; i < avail; i++)
+//                        {
+//                            buffer[i] = (byte)mmInStream.read();
+//                        }
+//                            // Read from the InputStream
+//                            //buffer = new byte [1024];
+////                                int dhs = mmInStream.read();
+////                                Log.d(TAG, "Read byte: " + dhs); //1.312sec -> 10496 samples //received 6529 bytes
+//                                                               //1.221sec -> 9768 samples //received 6338 bytes
+//
+//                                                               //2 seconds of sampling -> 16000 samples //received 8000 bytes
+////                                bytes = mmInStream.read(buffer);
+////                                Log.d(TAG, "Reading bytes: " + bytes);
+////                                String temp = new String(buffer);
+////                                Log.d(TAG, "Bytes read: " + temp);
+//                            // Send the obtained bytes to the UI activity
+//                        //mHandler.obtainMessage(MESSAGE_READ, avail, -1, buffer)
+//                        //            .sendToTarget();
+//                    }
+//                    else SystemClock.sleep(20);
+
+
+                    //if (mmInStream.available() > 0) {
+                    int i = 0;
+                    int temp = 0;
+                    while (i < 128) {
+                        temp = mmInStream.read();
+                        buffer[i] = (byte) temp;
+                        i++;
+                    }
+                    uart_counter2 = uart_counter2 + i;
+                    Log.d(TAG, "Total bytes received: " + uart_counter2);
+
+                    byte[] keep_alive = new byte[1];
+                    keep_alive[0] = (byte) 105;
+                    write(keep_alive);
+
+                    mHandler.obtainMessage(MESSAGE_READ, 128, -1, buffer)
+                            .sendToTarget();
+//                    }
+//                    else {
+//                        Log.e(TAG, "Read failed as socket is currently closed.");
+//                        this.cancel();
+//                    }
+                    //}
+                }
+                catch(IOException e){
+                    e.printStackTrace();
+                    Log.e(TAG, "IO Exception when obtaining messaging from mHandler in connected thread.");
+                    break;
+                }
+            }
+//            while (true) {
+//                try {
+//                    if(mmSocket.isConnected()) {
+//                        // Read from the InputStream
+//                        bytes = mmInStream.read(buffer);
+//                        // Send the obtained bytes to the UI activity
+//                        mHandler.obtainMessage(MESSAGE_READ, bytes, -1, buffer)
+//                                .sendToTarget();
+//                    }
+//                    else
+//                    {
+//                        Log.e(TAG, "Read failed as socket is currently closed.");
+//                        this.cancel();
+//                    }
+//                } catch (IOException e) {
+//                    e.printStackTrace();
+//                    Log.e(TAG, "IO Exception when obtaining messaging from mHandler in connected thread.");
+//                    break;
+//                }
+//            }
+        }
+
+        /* Call this from the main activity to send data to the remote device */
+        public void write(byte[] bytes) {
+            try {
+                if(mmSocket.isConnected())
+                    mmOutStream.write(bytes);
+                else {
+                    Log.e(TAG, "Write failed as socket is currently closed.");
+                    this.cancel();
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+                Log.e(TAG, "IO Exception when writing to IO stream in connected thread.");
+            }
+        }
+
+        /* Call this from the main activity to shutdown the connection */
+        public void cancel() {
+            bluetooth_active_connection = false;
+            try {
+                mmSocket.close();
+                //audio_track.release();
+            } catch (IOException e) {
+                e.printStackTrace();
+                Log.e(TAG, "IO Exception when canceling connected thread.");
+            }
+        }
+    }
+
+    public void BluetoothWrite(byte[] out) {
+        // Create temporary object
+        ConnectedThread temp;
+        // Synchronize a copy of the ConnectedThread
+        //ensures there can only be one copy of the ConnectedThread
+        synchronized (this) {
+            if (mConnectedThread == null)
+                return;
+            temp = mConnectedThread;
+        }
+        // Perform the write unsynchronized
+        temp.write(out);
     }
 }
 
