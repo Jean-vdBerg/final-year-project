@@ -31,21 +31,47 @@ public class Dictionary {
 
         word_list[0].initialize("apple", mCtx);
 
-        word_list[1].initialize("banana", mCtx);
+//        word_list[1].initialize("banana", mCtx);
+//
+//        word_list[2].initialize("hello", mCtx);
+//
+//        word_list[3].initialize("kiwi", mCtx);
+//
+//        word_list[4].initialize("lime", mCtx);
+//
+//        word_list[5].initialize("orange", mCtx);
+//
+//        word_list[6].initialize("peach", mCtx);
+//
+//        word_list[7].initialize("pineapple", mCtx);
 
-        word_list[2].initialize("hello", mCtx);
+        word_list[1].initialize("text", mCtx);
 
-        word_list[3].initialize("kiwi", mCtx);
+        word_list[2].initialize("mail", mCtx);
 
-        word_list[4].initialize("lime", mCtx);
+        word_list[3].initialize("john", mCtx);
 
-        word_list[5].initialize("orange", mCtx);
+        word_list[4].initialize("jean", mCtx);
 
-        word_list[6].initialize("peach", mCtx);
+        word_list[5].initialize("subject", mCtx);
 
-        word_list[7].initialize("pineapple", mCtx);
+        word_list[6].initialize("hello", mCtx);
 
-        dictionary_size += 8;
+        word_list[7].initialize("thiss", mCtx);
+
+        word_list[8].initialize("is", mCtx);
+
+        word_list[9].initialize("an", mCtx);
+
+        word_list[10].initialize("example", mCtx);
+
+        word_list[11].initialize("how", mCtx);
+
+        word_list[12].initialize("are", mCtx);
+
+        word_list[13].initialize("you", mCtx);
+
+        dictionary_size += 14;
     }
 
     public void addWord(String word_name, double[][] audio_signal, int signal_length)
@@ -173,7 +199,8 @@ public class Dictionary {
         double[] coeffs_log = new double[filterbank_size];
         double[] coeffs_dct = new double[filterbank_size];
 
-        int frames_amnt = (int)Math.floor((num_samples - (num_samples%samples_per_frame))/frame_step) + 1;
+        double temp = num_samples - (num_samples%samples_per_frame);
+        int frames_amnt = (int)Math.ceil(temp/frame_step);
         int current_frame = 0;
         double[][] mfcc = new double[frames_amnt][cepstra_coeffs_amnt];
         DoubleFFT_1D fft = new DoubleFFT_1D(fft_size);
@@ -221,7 +248,11 @@ public class Dictionary {
             }
         }
 
-        for (int i = 0; i < (num_samples - num_samples%samples_per_frame - 1); i = i + frame_step)
+//        Log.d("MFCC", "temp: " + temp);
+//        Log.d("MFCC", "samples: " + num_samples);
+//        Log.d("MFCC", "array: " + frames_amnt);
+//        Log.d("MFCC", "loop: < " + (num_samples - num_samples%samples_per_frame));
+        for (int i = 0; i < (num_samples - num_samples%samples_per_frame); i = i + frame_step)
         {
             //compute frame energy
             double frame_energy = 0;
@@ -318,8 +349,8 @@ public class Dictionary {
 //                }
             }
 
-            if(mfcc[current_frame][0] < -50)
-                mfcc[current_frame][0] = -50;
+            //if(mfcc[current_frame][0] < -50)
+            //    mfcc[current_frame][0] = -50;
 
             //include frame energy if needed
             if(include_frame_energy)

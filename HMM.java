@@ -22,8 +22,8 @@ public class HMM {
     private double[][][][] sigma; //DxDxGxN covariance matrix for each gaussian of each GMM
     private double[][] C; //NxG matrix for the weighting of the gaussians of each GMM
     private String word_name = ""; //The word that is modelled by the GMM
-    private double[][] B; //B1 = NxT, gaussian distribution for all gaussians summed and scaled
-    private double[][][] B_gaussians; //B2 = NxTxG, gaussian distribution for each gaussian
+    //private double[][] B; //B1 = NxT, gaussian distribution for all gaussians summed and scaled
+    //private double[][][] B_gaussians; //B2 = NxTxG, gaussian distribution for each gaussian
     private double[][] alpha; //NxT, result of forward algorithm
     private double[][] beta; //NxT, result of backward algorithm
 
@@ -136,10 +136,11 @@ public class HMM {
         }
     }
 
-    public void getGMMMatrixGaussians(double observations[][])
+    public double[][][] getGMMMatrixGaussians(double observations[][])
     {
         int T = observations.length; //obtain length of 2nd dimension, array is rectangular
-        B_gaussians = new double[this.N][T][this.G];
+        //Log.d("Dictionary", "Observations: " + T + " by " + observations[0].length + " array");
+        double[][][] B_gaussians = new double[this.N][T][this.G];
         for (int m = 0; m < this.G; m++)
         {
             for (int i = 0; i < this.N; i++)
@@ -154,10 +155,17 @@ public class HMM {
                 }
                 double constant = 1/Math.sqrt(Math.pow(2*Math.PI, this.D)*determinant);
 
+//                Log.d("Dictionary", "Mu: " + mu[0][m][i] + ", " + mu[1][m][i] + ", " + mu[2][m][i] + ", " + mu[3][m][i] + ", " +
+//                        mu[4][m][i] + ", " + mu[5][m][i] + ", " + mu[6][m][i] + ", " + mu[7][m][i] + ", " + mu[8][m][i] + ", " +
+//                        mu[9][m][i] + ", " + mu[10][m][i] + ", " + mu[11][m][i] + ", " + mu[12][m][i]);
+//                Log.d("Dictionary", "Sigma inverse: " + sigma_inverse[0] + ", " + sigma_inverse[1] + ", " + sigma_inverse[2] + ", " + sigma_inverse[3] + ", " +
+//                        sigma_inverse[4] + ", " + sigma_inverse[5] + ", " + sigma_inverse[6] + ", " + sigma_inverse[7] + ", " + sigma_inverse[8] + ", "
+//                        + sigma_inverse[9] + ", " + sigma_inverse[10] + ", " + sigma_inverse[11] + ", " + sigma_inverse[12]);
 //                Log.d("Dictionary", "Constant: " + constant + " det: " + determinant);
 //                Log.d("Dictionary", "Sigma: " + sigma[0][0][m][i] + ", " + sigma[1][1][m][i] + ", " + sigma[2][2][m][i] + ", " + sigma[3][3][m][i] + ", " +
 //                        sigma[4][4][m][i] + ", " +sigma[5][5][m][i] + ", " + sigma[6][6][m][i] + ", " + sigma[7][7][m][i] + ", " + sigma[8][8][m][i] + ", " +
 //                        sigma[9][9][m][i] + ", " + sigma[10][10][m][i] + ", " + sigma[11][11][m][i] + ", " + sigma[12][12][m][i]);
+                //sigma, sigma inverse, constant, mu, and determinant are all correct
 
                 for (int t = 0; t < T; t++)
                 {
@@ -173,29 +181,32 @@ public class HMM {
                     {
                         temp_matrix_2[j] += temp_matrix_1[j] * sigma_inverse[j];
                     }
+//                    if(t < 5)
+//                        Log.d("Dictionary", "Temp matrix 1: " + temp_matrix_1[0] + ", " + temp_matrix_1[1] + ", " + temp_matrix_1[2] + ", " + temp_matrix_1[3] + ", " + temp_matrix_1[4]);
+//                    if(t < 5)
+//                        Log.d("Dictionary", "Temp matrix 2: " + temp_matrix_2[0] + ", " + temp_matrix_2[1] + ", " + temp_matrix_2[2] + ", " + temp_matrix_2[3] + ", " + temp_matrix_2[4]);
                     for (int j = 0; j < this.D; j++)
                     {
                         matrix_constant += temp_matrix_2[j]*temp_matrix_1[j];
                     }
-
+//                    if(t < 5)
+//                        Log.d("Dictionary", "Matrix constant before: " + matrix_constant);
                     matrix_constant = Math.exp(-0.5 * matrix_constant);
+//                    if(t < 5)
+//                        Log.d("Dictionary", "Matrix constant after: " + matrix_constant);
                     B_gaussians[i][t][m] = constant * matrix_constant;
                     //B2(i, :, m) = mvnpdf(observations', this.mu(:, m, i)', this.sigma(:, :, m, i));
                 }
             }
-//            for (int i = 0; i < this.N; i++) {
-//                Log.d("Dictionary", B_gaussians[i][0][0] + ", " + B_gaussians[i][1][0] + ", " + B_gaussians[i][2][0] + ", " + B_gaussians[i][3][0] + ", " +
-//                        B_gaussians[i][4][0] + ", " + B_gaussians[i][5][0] + ", " + B_gaussians[i][6][0] + ", " + B_gaussians[i][7][0] + ", " + B_gaussians[i][8][0] + ", " +
-//                        B_gaussians[i][9][0] + ", " + B_gaussians[i][10][0] + ", " + B_gaussians[i][11][0] + ", " + B_gaussians[i][12][0]);
-//            }
         }
+        return B_gaussians;
     }
 
-    public void getGMMMatrixTotal(double observations[][])
+    public double[][] getGMMMatrixTotal(double observations[][])
     {
         int T = observations.length; //obtain length of 2nd dimension, array is rectangular
-        getGMMMatrixGaussians(observations);
-        B = new double[this.N][T];
+        double[][][] B_gaussians = getGMMMatrixGaussians(observations);
+        double[][] B = new double[this.N][T];
         for (int i = 0; i < this.N; i++)
         {
             for (int m = 0; m < this.G; m++)
@@ -207,18 +218,13 @@ public class HMM {
                 }
             }
         }
-//        for (int i = 0; i < this.N; i++) {
-//            Log.d("Dictionary", B[i][0] + ", " + B[i][1] + ", " + B[i][2] + ", " + B[i][3] + ", " +
-//                    B[i][4] + ", " + B[i][5] + ", " + B[i][6] + ", " + B[i][7] + ", " + B[i][8] + ", " +
-//                    B[i][9] + ", " + B[i][10] + ", " + B[i][11] + ", " + B[i][12]);
-//        }
-        //// TODO: 2016/10/05 correct the b matrix generation 
+        return B;
     }
 
-    public void getGMMMatrixTotal_2(double observations[][])
+    public double[][] getGMMMatrixTotal_2(double observations[][])
     {
         int T = observations.length; //obtain length of 2nd dimension, array is rectangular
-        B = new double[this.N][T];
+        double[][] B = new double[this.N][T];
         for (int i = 0; i < this.N; i++)
         {
             for (int t = 0; t < T; t++)
@@ -227,9 +233,10 @@ public class HMM {
                 //B2(i, :, m) = mvnpdf(observations', this.mu(:, m, i)', this.sigma(:, :, m, i));
             }
         }
+        return B;
     }
 
-    public double forward()
+    public double forward(double[][] B)
     {
         double log_likelihood = 0;
         int T = B[0].length;
@@ -276,10 +283,21 @@ public class HMM {
             log_likelihood += Math.log(c_t);
             //log_likelihood = log_likelihood + log(c_t); %(equation 27)
         }
+//        Log.d("Dictionary", "Next word:");
+//        for (int i = 0; i < this.N; i++) {
+//            Log.d("Dictionary B", B[i][0] + ", " + B[i][1] + ", " + B[i][2] + ", " + B[i][3] + ", " +
+//                    B[i][4] + ", " + B[i][5] + ", " + B[i][6] + ", " + B[i][7] + ", " + B[i][8] + ", " +
+//                    B[i][9] + ", " + B[i][10] + ", " + B[i][11] + ", " + B[i][12]);
+//        }
+//        for (int i = 0; i < this.N; i++) {
+//            Log.d("Dictionary A", alpha[i][0] + ", " + alpha[i][1] + ", " + alpha[i][2] + ", " + alpha[i][3] + ", " +
+//                    alpha[i][4] + ", " + alpha[i][5] + ", " + alpha[i][6] + ", " + alpha[i][7] + ", " + alpha[i][8] + ", " +
+//                    alpha[i][9] + ", " + alpha[i][10] + ", " + alpha[i][11] + ", " + alpha[i][12]);
+//        }
         return log_likelihood;
     }
 
-    public void backward()
+    public void backward(double[][] B)
     {
         int T = B[0].length;
         beta = new double[this.N][T];
@@ -316,16 +334,16 @@ public class HMM {
 
     public double stateProbability(double observations[][])
     {
-        getGMMMatrixTotal(observations);
-        return forward();
+        double[][] B = getGMMMatrixTotal(observations);
+        return forward(B);
     }
 
     public double train(double observations[][])
     {
         int T = observations.length;
-        getGMMMatrixTotal(observations);
-        double log_likelihood = forward();
-        backward();
+        double[][] B = getGMMMatrixTotal(observations);
+        double log_likelihood = forward(B);
+        backward(B);
 
         double[][] gamma = new double[this.N][T];
         double[][][] delta = new double[this.N][this.N][T];

@@ -114,7 +114,7 @@ public class HomePage extends Activity implements ISpeechDelegate{
     private AudioRecord recorder = null;
     private static boolean recording = false;
     private static int recording_index = 0;
-    private static String recording_word = "hello";
+    private static String recording_word = "you";
     private static String stt_total_result = "";
     private static boolean save_recordings = false;
 
@@ -300,6 +300,10 @@ public class HomePage extends Activity implements ISpeechDelegate{
 //            Log.d(TAG, "Sending bytes");
 //            BluetoothWrite(bytes);
         }
+        else
+        {
+            mHandler = new Handler();
+        }
 
 //        new Thread(){
 //            public void run(){
@@ -370,19 +374,61 @@ public class HomePage extends Activity implements ISpeechDelegate{
         {
             dictionary = new Dictionary(getApplicationContext());
             Log.d(TAG, "STT Custom initialized");
-            double[] buffer = new double[2695];
-            Scanner scanner = new Scanner(getResources().openRawResource(R.raw.apple01));
-            scanner.useDelimiter(",|\\n");
-            scanner.useLocale(Locale.ENGLISH); //try this if having weird problem
-            int i = 0;
-            while(scanner.hasNextDouble())
+//            double[] buffer = new double[2695];
+//            Scanner scanner = new Scanner(getResources().openRawResource(R.raw.apple01));
+//            scanner.useDelimiter(",|\\n");
+//            scanner.useLocale(Locale.ENGLISH); //try this if having weird problem
+//            int i = 0;
+//            while(scanner.hasNextDouble())
+//            {
+//                buffer[i] = scanner.nextDouble();
+//                i++;
+//            }
+//            Log.d(TAG, "Start recognition test");
+//            String result = dictionary.recognize(buffer, i);
+//            Log.d(TAG, "Audio signal recognized as " + result);
+//
+//            double[] buffer1 = new double[9000];
+//            Scanner scanner1 = new Scanner(getResources().openRawResource(R.raw.text5));
+//            scanner1.useDelimiter(",|\\n");
+//            scanner1.useLocale(Locale.ENGLISH); //try this if having weird problem
+//            int i1 = 0;
+//            while(scanner1.hasNextDouble())
+//            {
+//                buffer1[i1] = scanner1.nextDouble();
+//                i1++;
+//            }
+//            Log.d(TAG, "Start recognition test");
+//            String result1 = dictionary.recognize(buffer1, i1);
+//            Log.d(TAG, "Audio signal recognized as " + result1);
+//
+//            double[] buffer2 = new double[9000];
+//            Scanner scanner2 = new Scanner(getResources().openRawResource(R.raw.this5));
+//            scanner2.useDelimiter(",|\\n");
+//            scanner2.useLocale(Locale.ENGLISH); //try this if having weird problem
+//            int i2 = 0;
+//            while(scanner2.hasNextDouble())
+//            {
+//                buffer2[i2] = scanner2.nextDouble();
+//                i2++;
+//            }
+//            Log.d(TAG, "Start recognition test");
+//            String result2 = dictionary.recognize(buffer2, i2);
+//            Log.d(TAG, "Audio signal recognized as " + result2);
+
+            double[] buffer3 = new double[7000];
+            Scanner scanner3 = new Scanner(getResources().openRawResource(R.raw.you5));
+            scanner3.useDelimiter(",|\\n");
+            scanner3.useLocale(Locale.ENGLISH); //try this if having weird problem
+            int i3 = 0;
+            while(scanner3.hasNextDouble())
             {
-                buffer[i] = scanner.nextDouble();
-                i++;
+                buffer3[i3] = scanner3.nextDouble();
+                i3++;
             }
             Log.d(TAG, "Start recognition test");
-            String result = dictionary.recognize(buffer, buffer.length);
-            Log.d(TAG, "Audio signal recognized as " + result);
+            String result3 = dictionary.recognize(buffer3, i3);
+            Log.d(TAG, "Audio signal recognized as " + result3);
         }
 
         IntentFilter filter_received_sms = new IntentFilter("broadcast_sms");
@@ -396,6 +442,144 @@ public class HomePage extends Activity implements ISpeechDelegate{
 
         IntentFilter filter_trigger_tts = new IntentFilter("broadcast_trigger_tts");
         registerReceiver(broadcastReceiverTriggerTTS, filter_trigger_tts);
+
+//        Button buttonRecord = (Button) findViewById(R.id.buttonRecord);
+//        buttonRecord.setOnClickListener(new View.OnClickListener() {
+//            @Override
+//            public void onClick(View arg0) {
+//                if(use_stt_api) {
+//                    if (mState == ConnectionState.IDLE) {
+//                        mState = ConnectionState.CONNECTING;
+//                        aState = ApplicationState.SST_CONVERSION;
+//                        Log.d(TAG, "onClickRecord: IDLE -> CONNECTING");
+//                        recognition_results = "";
+//                        displayResult(recognition_results, false);
+//                        // start recognition
+//                        new AsyncTask<Void, Void, Void>() {
+//                            @Override
+//                            protected Void doInBackground(Void... none) {
+//                                SpeechToText.sharedInstance().recognize(); //uses OnMessage() function to display results
+//                                return null;
+//                            }
+//                        }.execute();
+//                        setButtonLabel(R.id.buttonRecord, "Connecting...");
+//                        setButtonState(true);
+//                    } else if (mState == ConnectionState.CONNECTED) {
+//                        mState = ConnectionState.IDLE;
+//                        Log.d(TAG, "onClickRecord: CONNECTED -> IDLE");
+//                        SpeechToText.sharedInstance().stopRecognition(); //uses OnMessage() function to display results
+//                        setButtonState(false);
+//                    }
+//                }
+//                else
+//                {
+//                    if(!recording) {
+//                        recording = true;
+//                        setButtonLabel(R.id.buttonRecord, "Stop Recording");
+//                        Log.d(TAG, "Recording started");
+//                        if(use_custom_playback_device)
+//                        {
+//                            recording_data = true;
+//                            byte[] bytes = {0x72}; //lowercase r for 'record'
+//                            BluetoothWrite(bytes);
+//                            //todo implement shiz
+//                        }
+//                        else {
+//                            recorder = new AudioRecord(MediaRecorder.AudioSource.DEFAULT, 8000,
+//                                    AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_FLOAT, 8000);
+//                            new AsyncTask<Void, Void, Void>() {
+//                                @Override
+//                                protected Void doInBackground(Void... none) {
+//
+//                                    recorder.startRecording();
+//                                    float[] f_buffer = new float[1000];
+//                                    double[] buffer = new double[24000];
+//                                    int buffer_size = 0;
+//                                    double max = 0;
+//                                    boolean data_started = false;
+//                                    do {
+//                                        int data_read = recorder.read(f_buffer, 0, f_buffer.length, AudioRecord.READ_NON_BLOCKING);
+//                                        if (data_read > 0) {
+//                                            //Log.d("Dictionary", "Sample float = " + f_buffer[0]);
+//                                            for (int i = 0; i < data_read; i++) {
+//                                                //if (f_buffer[i] > 0.0004 || f_buffer[i] < -0.0004 || data_started) {
+//                                                buffer[buffer_size] = (double) f_buffer[i];
+//                                                if (buffer[buffer_size] > max)
+//                                                    max = buffer[buffer_size];
+//                                                buffer_size++;
+//                                                data_started = true;
+//                                                //}
+//                                            }
+//                                            //Log.d("Dictionary", "Sample double = " + buffer[buffer_size - data_read]);
+//                                        } else if (data_read < 0) {
+//                                            Log.e(TAG, "Error code " + data_read + " given by AudioRecord, consult documentation.");
+//                                        }
+//                                    }
+//                                    while (recording);
+//
+//                                    if (save_recordings) {
+//                                        try {
+//                                            //Log.d(TAG, "Directory = " + getFilesDir()+File.separator+"test.txt");
+//                                            File file = new File(getExternalFilesDir(null), recording_word + recording_index + ".txt");
+//                                            recording_index++;
+//                                            BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(file));
+//                                            for (int i = 0; i < buffer_size; i++) {
+//                                                //Log.d(TAG, "Arr at " + i + " = " + buffer[i]);
+//                                                bufferedWriter.write(buffer[i] + "\n");
+//                                            }
+//                                            bufferedWriter.close();
+//                                            Intent intent =
+//                                                    new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE);
+//                                            intent.setData(Uri.fromFile(file));
+//                                            sendBroadcast(intent);
+//                                        } catch (IOException ex) {
+//                                            ex.printStackTrace();
+//                                        }
+//                                    }
+//
+//                                    Log.d(TAG, "Max = " + max);
+//                                    Log.d(TAG, "Recording stopped");
+//                                    recorder.stop();
+//                                    recorder.release();
+//                                    final String stt_result = dictionary.recognize(buffer, buffer_size);
+//                                    //// TODO: 2016/10/06 check why the log likelihoods are slightly different compared to matlab
+//                                    Log.d(TAG, "Audio recording identified as: " + stt_result);
+//                                    //stt_total_result += Character.toUpperCase(stt_result.charAt(0)) + stt_result.substring(1) + " "; //capitalize first letter
+//                                    stt_total_result += stt_result + " ";
+//
+//                                    final Runnable runnable_ui = new Runnable() {
+//                                        @Override
+//                                        public void run() {
+//                                            TextView textDisplay = (TextView) findViewById(R.id.textDisplay);
+//                                            textDisplay.setText(stt_total_result);
+//                                        }
+//                                    };
+//
+//                                    new Thread() {
+//                                        public void run() {
+//                                            mHandler.post(runnable_ui);
+//                                        }
+//                                    }.start();
+//
+//                                    return null;
+//                                }
+//                            }.execute();
+//                        }
+//                    }
+//                    else
+//                    {
+//                        recording = false;
+//                        setButtonLabel(R.id.buttonRecord, "Record");
+//                        if(use_custom_playback_device)
+//                        {
+//                            recording_data = false;
+//                            byte[] bytes = {0x73}; //lowercase s for 'stop'
+//                            BluetoothWrite(bytes);
+//                        }
+//                    }
+//                }
+//            }
+//        });
     }
 
     /**
@@ -547,6 +731,7 @@ public class HomePage extends Activity implements ISpeechDelegate{
                                         bufferedWriter.write(buffer[i] + "\n");
                                     }
                                     bufferedWriter.close();
+                                    Log.d(TAG, "Recording saved as word " + recording_word);
                                     Intent intent =
                                             new Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE);
                                     intent.setData(Uri.fromFile(file));
